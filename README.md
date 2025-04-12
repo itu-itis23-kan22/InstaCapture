@@ -172,7 +172,28 @@ All downloaded files are stored in the `instagram_content` folder:
      - **Windows**: Reinstall Python with Tkinter options checked. During installation, select "Customize installation" and ensure "tcl/tk and IDLE" option is selected
    - To test if Tkinter is properly installed, run: `python -c "import tkinter; tkinter._test()"`
 
-4. **Permission errors on macOS/Linux**
+4. **PEP 668 error when installing packages**
+   - If you see an error message like "See PEP 668 for the detailed specification" when trying to install packages, this is due to Python's system protection
+   - This commonly occurs on macOS with Homebrew Python 3.10+ or Linux distributions with system Python
+   - Solutions:
+     - Create a virtual environment first (recommended):
+       ```bash
+       python -m venv .venv
+       source .venv/bin/activate  # On macOS/Linux
+       .venv\Scripts\activate     # On Windows
+       pip install pillow requests
+       ```
+     - Or install packages for your user only:
+       ```bash
+       pip install --user pillow requests
+       ```
+     - Or run the command directly with required packages pre-installed:
+       ```bash
+       python3 instastalk.py  # For CLI
+       python3 instastalk_gui.py  # For GUI
+       ```
+
+5. **Permission errors on macOS/Linux**
    - Run `chmod +x InstaCapture.command` for macOS
    - Ensure you have write permissions for the destination folder
    - On macOS, if you see "macOS cannot verify that this app is free from malware", follow the steps in the Installation section to allow the app to run (using Security & Privacy settings)

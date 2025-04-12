@@ -172,7 +172,28 @@ Hikayeleri indirmek için Instagram çerezlerinizi ayarlamanız gerekiyor:
      - **Windows**: Python'u Tkinter seçenekleri işaretlenmiş olarak yeniden yükleyin. Kurulum sırasında "Özel kurulum" seçeneğini seçin ve "tcl/tk ve IDLE" seçeneğinin işaretli olduğundan emin olun
    - Tkinter'ın düzgün kurulup kurulmadığını test etmek için şu komutu çalıştırın: `python -c "import tkinter; tkinter._test()"`
 
-4. **macOS/Linux'ta izin hataları**
+4. **Paket yüklerken PEP 668 hatası**
+   - Paketleri yüklemeye çalışırken "See PEP 668 for the detailed specification" veya "hint: See PEP 668" gibi bir hata mesajı görürseniz, bu Python'un sistem korumasından kaynaklanmaktadır
+   - Bu hata genellikle Homebrew Python 3.10+ kullanan macOS veya sistem Python'u olan Linux dağıtımlarında görülür
+   - Çözüm yolları:
+     - Bir sanal ortam oluşturun (önerilen):
+       ```bash
+       python -m venv .venv
+       source .venv/bin/activate  # macOS/Linux için
+       .venv\Scripts\activate     # Windows için
+       pip install pillow requests
+       ```
+     - Veya paketleri sadece kullanıcınız için yükleyin:
+       ```bash
+       pip install --user pillow requests
+       ```
+     - Veya gerekli paketleri manuel olarak yükledikten sonra doğrudan komutu çalıştırın:
+       ```bash
+       python3 instastalk.py  # CLI için
+       python3 instastalk_gui.py  # GUI için
+       ```
+
+5. **macOS/Linux'ta izin hataları**
    - macOS için `chmod +x InstaCapture.command` komutunu çalıştırın
    - Hedef klasör için yazma izinleriniz olduğundan emin olun
    - macOS'ta "macOS, 'InstaCapture.command' öğesinin Mac'inize zarar verebilecek veya gizliliğinizi ihlal edebilecek bir kötü amaçlı yazılım içermediğini doğrulayamadı" mesajını görürseniz, uygulamanın çalışmasına izin vermek için Kurulum bölümündeki adımları takip edin (Güvenlik ve Gizlilik ayarlarını kullanarak)
