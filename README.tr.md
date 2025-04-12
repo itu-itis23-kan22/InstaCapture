@@ -165,6 +165,12 @@ Hikayeleri indirmek için Instagram çerezlerinizi ayarlamanız gerekiyor:
 3. **GUI görünmüyor**
    - Tkinter'ın kurulu olduğundan emin olun (çoğu Python kurulumu ile birlikte gelir)
    - Hata mesajlarını görmek için komut satırından çalıştırmayı deneyin
+   - Eğer "Lütfen Python'u Tkinter desteğiyle yeniden kurun" gibi bir hata mesajı görürseniz, aşağıdaki talimatları izleyin:
+     - **macOS**: `brew install python-tk` veya `brew reinstall python` komutunu çalıştırın
+     - **Linux (Debian/Ubuntu)**: `sudo apt-get update && sudo apt-get install python3-tk` komutunu çalıştırın
+     - **Linux (Fedora)**: `sudo dnf install python3-tkinter` komutunu çalıştırın
+     - **Windows**: Python'u Tkinter seçenekleri işaretlenmiş olarak yeniden yükleyin. Kurulum sırasında "Özel kurulum" seçeneğini seçin ve "tcl/tk ve IDLE" seçeneğinin işaretli olduğundan emin olun
+   - Tkinter'ın düzgün kurulup kurulmadığını test etmek için şu komutu çalıştırın: `python -c "import tkinter; tkinter._test()"`
 
 4. **macOS/Linux'ta izin hataları**
    - macOS için `chmod +x InstaCapture.command` komutunu çalıştırın

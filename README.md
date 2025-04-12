@@ -165,6 +165,12 @@ All downloaded files are stored in the `instagram_content` folder:
 3. **GUI doesn't appear**
    - Ensure Tkinter is installed (it comes with most Python installations)
    - Try running from command line to see if there are any error messages
+   - If you see an error message "Please reinstall Python with Tkinter support", follow these instructions:
+     - **macOS**: Run `brew install python-tk` or `brew reinstall python`
+     - **Linux (Debian/Ubuntu)**: Run `sudo apt-get update && sudo apt-get install python3-tk`
+     - **Linux (Fedora)**: Run `sudo dnf install python3-tkinter`
+     - **Windows**: Reinstall Python with Tkinter options checked. During installation, select "Customize installation" and ensure "tcl/tk and IDLE" option is selected
+   - To test if Tkinter is properly installed, run: `python -c "import tkinter; tkinter._test()"`
 
 4. **Permission errors on macOS/Linux**
    - Run `chmod +x InstaCapture.command` for macOS
