@@ -1,103 +1,107 @@
 # 📱 InstaCapture (InstaStalker)
 
-Instagram içeriklerini indirmek için kullanıcı dostu bir araç.
+A user-friendly tool for downloading Instagram content.
 
-> ⚠️ **Önemli Not**: Bu proje eğitim amaçlı geliştirilmiştir ve sadece kişisel kullanım için tasarlanmıştır. Instagram'ın kullanım şartlarına uygun şekilde kullanılması kullanıcının sorumluluğundadır.
+> ⚠️ **Important Note**: This project is developed for educational purposes and is designed for personal use only. It is the user's responsibility to ensure compliance with Instagram's terms of service.
 
-## 🌟 Özellikler
+## 🌟 Features
 
-- 📸 **Hikayeleri İndirme**: Kullanıcı adı ile hikayeleri indirebilirsiniz
-- 🎬 **Gönderi/Reel İndirme**: Instagram gönderilerini veya reellerini URL ile indirebilirsiniz
-- 👤 **Profil Resmi İndirme**: Kullanıcı adı ile profil resimlerini indirebilirsiniz
-- 🔄 **Toplu İndirme**: Bir kullanıcının tüm içeriklerini tek seferde indirebilirsiniz
-- 🌐 **Çoklu Dil Desteği**: Türkçe ve İngilizce dil seçenekleri
-- 🖥️ **Komut Satırı ve GUI Arayüzü**: İhtiyacınıza göre iki farklı kullanım seçeneği
+- 📸 **Download Stories**: Download stories by username
+- 🎬 **Download Posts/Reels**: Download Instagram posts or reels by URL
+- 👤 **Download Profile Pictures**: Download profile pictures by username
+- 🔄 **Batch Download**: Download all content from a user at once
+- 🌐 **Multiple Language Support**: Turkish and English language options
+- 🖥️ **CLI and GUI Interface**: Two different usage options based on your needs
 
-## 📋 Gereksinimler
+## 📋 Requirements
 
-- Python 3.6 veya üzeri
-- Aşağıdaki Python kütüphaneleri:
+- Python 3.6 or higher
+- The following Python libraries:
   - instacapture
   - requests
-  - pillow (GUI için)
-  - tkinter (GUI için)
+  - pillow (for GUI)
+  - tkinter (for GUI)
 
-## 🚀 Kurulum ve Başlatma
+## 🚀 Installation and Setup
 
-### Paketleri Yükleme
+### Installing Packages
 ```bash
-# Gerekli kütüphaneleri yükleyin
+# Install required libraries
 pip install instacapture requests pillow
 ```
 
-### Windows Kullanıcıları İçin
-1. İndirdiğiniz dosyalarda `InstaCapture.pyw` veya `StartInstaCapture.bat` dosyasına çift tıklayın.
-2. Alternatif olarak komut satırında:
+### For Windows Users
+1. Double-click on `InstaCapture.pyw` or `StartInstaCapture.bat` in the downloaded files.
+2. Alternatively, in command prompt:
 ```bash
-python instastalk.py        # Komut satırı arayüzü için
-python instastalk_gui.py    # Grafik arayüzü için
+python instastalk.py        # For command-line interface
+python instastalk_gui.py    # For graphical interface
 ```
 
-### macOS Kullanıcıları İçin
-1. İndirdiğiniz dosyalarda `InstaCapture.command` dosyasına çift tıklayın.
-2. Alternatif olarak Terminal'de:
+### For macOS Users
+1. Double-click on `InstaCapture.command` in the downloaded files.
+2. Alternatively, in Terminal:
 ```bash
-python3 instastalk.py       # Komut satırı arayüzü için 
-python3 instastalk_gui.py   # Grafik arayüzü için
+python3 instastalk.py       # For command-line interface
+python3 instastalk_gui.py   # For graphical interface
 ```
 
-### Linux Kullanıcıları İçin
-Terminal'de:
+### For Linux Users
+In Terminal:
 ```bash
-python3 instastalk.py       # Komut satırı arayüzü için
-python3 instastalk_gui.py   # Grafik arayüzü için
+python3 instastalk.py       # For command-line interface
+python3 instastalk_gui.py   # For graphical interface
 ```
 
-### Kolay Erişim İçin Kısayol Oluşturma
-Masaüstüne kısayol oluşturmak için:
+### Creating Desktop Shortcut for Easy Access
+To create a desktop shortcut:
 ```bash
 python desktop_shortcut_setup.py
 ```
 
-## 🔧 Kullanım
+## 🔧 Usage
 
-### Hikaye İndirme
+### Downloading Stories
 
-Hikayeleri indirmek için Instagram çerezlerinizi ayarlamanız gerekiyor:
+To download stories, you need to set your Instagram cookies:
 
-1. Chrome/Safari'de Instagram.com adresine gidin ve giriş yapın
-2. Tarayıcıda herhangi bir yere sağ tıklayın ve 'İncele' seçeneğini seçin
-3. Açılan geliştirici araçlarında 'Ağ' sekmesine tıklayın
-4. Sayfayı yenileyin (F5)
-5. 'instagram.com' ile başlayan bir isteği seçin
-6. 'Başlıklar' sekmesinde 'Request Headers' kısmında 'Cookie:' satırını bulun
-7. Cookie satırını tam olarak kopyalayın
+1. Go to Instagram.com in Chrome/Safari and log in
+2. Right-click anywhere on the page and select 'Inspect'
+3. Click on the 'Network' tab in the developer tools
+4. Refresh the page (F5)
+5. Select a request that starts with 'instagram.com'
+6. Find the 'Cookie:' line in the 'Request Headers' section of the 'Headers' tab
+7. Copy the entire cookie line
 
-### İndirilen İçeriklerin Konumu
+### Location of Downloaded Content
 
-İndirilen tüm dosyalar `instagram_content` klasörü içinde saklanır:
+All downloaded files are stored in the `instagram_content` folder:
 
-- `instagram_content/stories/` - İndirilen hikayeler
-- `instagram_content/posts/` - İndirilen gönderiler ve reeller
-- `instagram_content/profiles/` - İndirilen profil resimleri
+- `instagram_content/stories/` - Downloaded stories
+- `instagram_content/posts/` - Downloaded posts and reels
+- `instagram_content/profiles/` - Downloaded profile pictures
 
-## 📜 Lisans
+## 📜 License
 
-Bu proje MIT Lisansı altında lisanslanmıştır. Detaylar için [LICENSE](LICENSE) dosyasına bakın.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-## 🔒 Güvenlik
+## 🔒 Security
 
-- Çerezleriniz sadece kendi bilgisayarınızda, `~/.instastalk/cookies.json` dosyasında saklanır.
-- Çerezler veya hesap bilgileriniz hiçbir sunucuya gönderilmez.
-- Uygulama, çerezleri yalnızca Instagram API isteklerini yetkilendirmek için kullanır.
+- Your cookies are stored only on your own computer, in the `~/.instastalk/cookies.json` file.
+- Cookies or your account information are never sent to any server.
+- The application only uses cookies to authorize Instagram API requests.
 
-## 📝 Eğitim Amaçlı Proje
+## 📝 Educational Project
 
-Bu proje, Python programlama becerilerini geliştirmek, API kullanımını öğrenmek ve kullanıcı arayüzü tasarımı konularında deneyim kazanmak için eğitim amaçlı geliştirilmiştir. Aşağıdaki eğitim konularını içerir:
+This project has been developed for educational purposes to enhance Python programming skills, learn API usage, and gain experience in user interface design. It covers the following educational topics:
 
-- HTTP istekleri ve çerez yönetimi
-- API entegrasyonu
-- Çoklu dil desteği
-- Komut satırı ve grafik kullanıcı arayüzü (GUI) geliştirme
-- Dosya sistemi işlemleri
-- Python modül mimarisi
+- HTTP requests and cookie management
+- API integration
+- Multi-language support
+- Command-line and graphical user interface (GUI) development
+- File system operations
+- Python module architecture
+
+## 🌐 Other Languages
+
+- [README in Turkish](README.tr.md)
