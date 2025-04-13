@@ -512,7 +512,7 @@ class InstaStalkGUI(tk.Tk):
         """Thread-safe way to update status label"""
         def _update():
             self.status_var.set(text)
-            self.root.update_idletasks()
+            self.update_idletasks()
         
         if is_main_thread():
             _update()
