@@ -956,7 +956,7 @@ class InstaStalkGUI(tk.Tk):
                         common_ids[id] = 1
                 
                 # En çok tekrar eden ID'yi kullan (muhtemelen kullanıcı ID'si)
-                if common_ids:
+                if common_ids and len(common_ids) > 0:
                     user_id = max(common_ids.items(), key=lambda x: x[1])[0]
             
             if not user_id:
@@ -996,8 +996,16 @@ class InstaStalkGUI(tk.Tk):
                 return
             
             # Highlights verilerini ayrıştır
-            highlights_data = highlights_response.json()
-            highlights = highlights_data.get('data', {}).get('user', {}).get('edge_highlight_reels', {}).get('edges', [])
+            try:
+                highlights_data = highlights_response.json()
+                if not highlights_data:
+                    self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının öne çıkan hikayeleri için geçerli veri alınamadı.\n")
+                    return
+                    
+                highlights = highlights_data.get('data', {}).get('user', {}).get('edge_highlight_reels', {}).get('edges', [])
+            except Exception as e:
+                self.update_result_text(self.highlights_result_text, f"❌ Highlights verisi ayrıştırılamadı: {str(e)}\n")
+                return
             
             if not highlights:
                 self.update_result_text(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
