@@ -301,7 +301,7 @@ class InstaStalkGUI(tk.Tk):
         url_entry.pack(side=tk.LEFT, padx=5)
         
         # İndirme butonu
-        download_button = ttk.Button(url_frame, text="Gönderiyi İndir", command=self.download_post)
+        download_button = ttk.Button(url_frame, text="Gönderiyi İndir", command=self.download_posts)
         download_button.pack(side=tk.LEFT, padx=10)
         
         # Sonuç alanı
