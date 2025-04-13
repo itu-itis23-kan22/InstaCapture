@@ -1065,10 +1065,28 @@ class InstaStalker:
                 return False
             
             # Highlights verilerini ayrıştır
-            highlights_data = highlights_response.json()
-            highlights = highlights_data.get('data', {}).get('user', {}).get('edge_highlight_reels', {}).get('edges', [])
+            try:
+                highlight_data = highlights_response.json()
+                if not highlight_data:
+                    print(f"❌ API yanıtında veri bulunamadı.")
+                    return False
+                
+                data = highlight_data.get('data')
+                if not data:
+                    print(f"❌ API yanıtında 'data' alanı bulunamadı.")
+                    return False
+                    
+                reels_media = data.get('reels_media')
+                if not reels_media:
+                    print(f"❌ API yanıtında 'reels_media' alanı bulunamadı.")
+                    return False
+                
+                reels = reels_media
+            except Exception as e:
+                print(f"❌ Highlight verisi ayrıştırılamadı: {str(e)}")
+                return False
             
-            if not highlights:
+            if not reels:
                 print(self._("no_highlights_found", username))
                 return False
             
@@ -1076,7 +1094,7 @@ class InstaStalker:
             print(self._("highlight_selection"))
             
             highlight_info = []
-            for i, highlight in enumerate(highlights, 1):
+            for i, highlight in enumerate(reels, 1):
                 node = highlight.get('node', {})
                 title = node.get('title', f"Highlight-{i}")
                 highlight_id = node.get('id')
@@ -1150,8 +1168,26 @@ class InstaStalker:
                 return False
             
             # Highlight verisini ayrıştır
-            highlight_data = highlight_response.json()
-            reels = highlight_data.get('data', {}).get('reels_media', [])
+            try:
+                highlight_data = highlight_response.json()
+                if not highlight_data:
+                    print(f"❌ API yanıtında veri bulunamadı.")
+                    return False
+                
+                data = highlight_data.get('data')
+                if not data:
+                    print(f"❌ API yanıtında 'data' alanı bulunamadı.")
+                    return False
+                    
+                reels_media = data.get('reels_media')
+                if not reels_media:
+                    print(f"❌ API yanıtında 'reels_media' alanı bulunamadı.")
+                    return False
+                
+                reels = reels_media
+            except Exception as e:
+                print(f"❌ Highlight verisi ayrıştırılamadı: {str(e)}")
+                return False
             
             if not reels:
                 print(self._("no_highlights_found", username))

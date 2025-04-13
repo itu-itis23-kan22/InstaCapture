@@ -1001,10 +1001,33 @@ class InstaStalkGUI(tk.Tk):
                 if not highlights_data:
                     self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının öne çıkan hikayeleri için geçerli veri alınamadı.\n")
                     return
+                
+                data = highlights_data.get('data')
+                if not data:
+                    self.update_result_text(self.highlights_result_text, f"❌ API yanıtında 'data' alanı bulunamadı.\n")
+                    return
                     
-                highlights = highlights_data.get('data', {}).get('user', {}).get('edge_highlight_reels', {}).get('edges', [])
+                user = data.get('user')
+                if not user:
+                    self.update_result_text(self.highlights_result_text, f"❌ API yanıtında 'user' alanı bulunamadı.\n")
+                    return
+                    
+                edge_highlight_reels = user.get('edge_highlight_reels')
+                if not edge_highlight_reels:
+                    self.update_result_text(self.highlights_result_text, f"❌ API yanıtında 'edge_highlight_reels' alanı bulunamadı.\n")
+                    return
+                    
+                edges = edge_highlight_reels.get('edges')
+                if not edges:
+                    self.update_result_text(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
+                    return
+                    
+                highlights = edges
+                
             except Exception as e:
                 self.update_result_text(self.highlights_result_text, f"❌ Highlights verisi ayrıştırılamadı: {str(e)}\n")
+                error_details = f"Response status: {highlights_response.status_code}, Content: {highlights_response.text[:100]}..."
+                self.update_result_text(self.highlights_result_text, f"Hata detayları: {error_details}\n")
                 return
             
             if not highlights:
