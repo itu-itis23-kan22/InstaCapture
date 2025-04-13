@@ -987,6 +987,38 @@ class InstaStalkGUI(tk.Tk):
         
         # Uygulamayı kapat
         self.destroy()
+        
+    def show_cookies_dialog(self):
+        """Instagram çerezlerini ayarlamak için dialog göster"""
+        # Kullanıcıya açıklama mesajı göster
+        instructions = (
+            "Instagram çerezlerini ayarlamak için:\n\n"
+            "1. Tarayıcıda Instagram.com'a giriş yapın\n"
+            "2. Geliştirici Araçlarını açın (F12 veya Ctrl+Shift+I)\n"
+            "3. Network sekmesine gidin\n"
+            "4. Instagram.com'u yenileyin\n"
+            "5. Herhangi bir isteği seçin\n"
+            "6. Headers (Başlıklar) tabını seçin\n"
+            "7. Request Headers bölümünde 'cookie' değerini bulun\n"
+            "8. Cookie değerinin tamamını kopyalayın\n\n"
+            "Cookie değeri şuna benzer olmalıdır:\n"
+            "mid=...; ig_did=...; ds_user_id=...; sessionid=...; csrftoken=..."
+        )
+        
+        # Çerez değerini girmesi için kullanıcıya sor
+        cookie_str = simpledialog.askstring("Instagram Çerezlerini Ayarla", 
+                                          instructions, 
+                                          parent=self)
+        
+        if cookie_str and cookie_str.strip():
+            # Çerezleri ayarla
+            success = self.stalker.set_cookies_from_string(cookie_str.strip())
+            
+            if success:
+                messagebox.showinfo("Başarılı", f"Çerezler başarıyla kaydedildi: {self.stalker.cookies_file}")
+                self.update_status(f"Çerezler kaydedildi: {self.stalker.cookies_file}")
+            else:
+                messagebox.showerror("Hata", "Çerezler kaydedilirken bir hata oluştu!")
 
     def fetch_highlights(self):
         """Öne çıkan hikayeleri getir."""
