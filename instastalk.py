@@ -1030,7 +1030,7 @@ class InstaStalker:
                         common_ids[id] = 1
                 
                 # En çok tekrar eden ID'yi kullan (muhtemelen kullanıcı ID'si)
-                if common_ids:
+                if common_ids and len(common_ids) > 0:
                     user_id = max(common_ids.items(), key=lambda x: x[1])[0]
             
             if not user_id:

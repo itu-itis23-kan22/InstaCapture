@@ -11,6 +11,7 @@ from datetime import datetime
 
 # Paket yükleme fonksiyonu
 def install_package(package_name):
+    """Belirtilen paketi pip ile yüklemeyi dener"""
     print(f"{package_name} paketi yükleniyor...")
     methods = [
         [sys.executable, "-m", "pip", "install", package_name],
@@ -23,7 +24,11 @@ def install_package(package_name):
             subprocess.check_call(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             print(f"{package_name} başarıyla yüklendi!")
             return True
-        except:
+        except subprocess.CalledProcessError as e:
+            print(f"Komut başarısız oldu: {' '.join(cmd)}, hata kodu: {e.returncode}")
+            continue
+        except FileNotFoundError as e:
+            print(f"Komut bulunamadı: {cmd[0]}")
             continue
     
     return False
@@ -33,45 +38,35 @@ try:
     import tkinter as tk
     from tkinter import ttk, messagebox, filedialog, scrolledtext, simpledialog
 except ImportError as e:
-    print("Tkinter paketi bulunamadı. Bu Python kurulumunuzla gelmelidir.")
-    print("Lütfen Python'u Tkinter desteğiyle yeniden kurun.")
+    print(f"Tkinter paketi bulunamadı: {e}")
+    print("Tkinter, Python kurulumunuzla gelmelidir. Lütfen Python'u Tkinter desteğiyle yeniden kurun.")
     sys.exit(1)
 
-# Diğer paketleri kontrol et ve yüklemeyi dene
-required_packages = ["pillow", "requests", "lxml"]
-missing_packages = []
+# threading standart kütüphane olduğu için kontrol etmeye gerek yok
+import threading
 
-# Threading modülü
-try:
-    import threading
-except ImportError:
-    missing_packages.append("threading")
+# Diğer paketleri kontrol et ve yüklemeyi dene
+required_packages = []
 
 # PIL modülü
 try:
     from PIL import Image, ImageTk
 except ImportError:
-    missing_packages.append("pillow")
+    required_packages.append("pillow")
     
 # Requests modülü  
 try:
     import requests
 except ImportError:
-    missing_packages.append("requests")
-
-# lxml modülü (isteğe bağlı ama yararlı)
-try:
-    import lxml
-except ImportError:
-    missing_packages.append("lxml")
+    required_packages.append("requests")
 
 # Eksik paketleri yüklemeyi dene
-if missing_packages:
-    print(f"Eksik paketler bulundu: {', '.join(missing_packages)}")
+if required_packages:
+    print(f"Eksik paketler bulundu: {', '.join(required_packages)}")
     print("Paketler otomatik olarak yüklenmeye çalışılacak...")
     
     success = True
-    for package in missing_packages:
+    for package in required_packages:
         if not install_package(package):
             success = False
             print(f"{package} paketi yüklenemedi.")
@@ -79,24 +74,22 @@ if missing_packages:
     if not success:
         print("\nBazı paketler yüklenemedi.")
         print("Lütfen manuel olarak şu komutu çalıştırın:")
-        print(f"pip install {' '.join(missing_packages)}")
+        print(f"pip install {' '.join(required_packages)}")
+        print("\nVeya şunları deneyebilirsiniz:")
+        print(f"{sys.executable} -m pip install {' '.join(required_packages)}")
         sys.exit(1)
     
     print("Paketler yüklendi, modüller içe aktarılıyor...")
     
     # Yeniden import etmeyi dene
     try:
-        if "pillow" in missing_packages:
+        if "pillow" in required_packages:
             from PIL import Image, ImageTk
-        if "requests" in missing_packages:
+        if "requests" in required_packages:
             import requests
-        if "lxml" in missing_packages:
-            import lxml
-        if "threading" in missing_packages:
-            import threading
     except ImportError as e:
         print(f"Paketler yüklendikten sonra bile import hatası: {e}")
-        print("Lütfen uygulamayı yeniden başlatın.")
+        print("Lütfen uygulamayı yeniden başlatın veya gerekli paketleri manuel olarak yükleyin.")
         sys.exit(1)
 
 # InstaStalk sınıfını içe aktar
@@ -107,6 +100,10 @@ except ImportError as e:
     print(f"instastalk.py dosyası bulunamadı veya içe aktarılamadı: {e}")
     print("Lütfen instastalk.py dosyasının bu script ile aynı klasörde olduğundan emin olun.")
     sys.exit(1)
+
+# Thread güvenli GUI güncellemeleri için yardımcı fonksiyonlar
+def is_main_thread():
+    return threading.current_thread() is threading.main_thread()
 
 class InstaStalkGUI(tk.Tk):
     """InstaStalker için grafik arayüz."""
@@ -463,188 +460,335 @@ class InstaStalkGUI(tk.Tk):
         clear_button = ttk.Button(self.log_tab, text="Log Temizle", command=self.clear_log)
         clear_button.pack(side=tk.RIGHT, padx=10, pady=5)
     
-    def update_status(self, message):
-        """Durum çubuğunu güncelle."""
-        self.status_var.set(message)
-        self.update_log(message)
-    
-    def update_log(self, message):
-        """Log metnini güncelle."""
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, f"[{time.strftime('%H:%M:%S')}] {message}\n")
-        self.log_text.see(tk.END)  # Son satıra kaydır
-        self.log_text.config(state=tk.DISABLED)
-    
-    def clear_log(self):
-        """Log metnini temizle."""
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.delete(1.0, tk.END)
-        self.log_text.config(state=tk.DISABLED)
-    
-    def update_result_text(self, text_widget, message):
-        """Sonuç metin alanını güncelle."""
-        text_widget.config(state=tk.NORMAL)
-        text_widget.insert(tk.END, f"{message}\n")
-        text_widget.see(tk.END)  # Son satıra kaydır
-        text_widget.config(state=tk.DISABLED)
-        
-        # Durum çubuğunu ve log alanını da güncelle
-        self.update_status(message)
-    
-    def capture_output(self, func):
-        """Çıktıyı yakala."""
-        from io import StringIO
-        import sys
-        
-        # Mevcut stdout'u kaydet
-        old_stdout = sys.stdout
-        
-        # Yeni bir StringIO nesnesi oluştur ve stdout olarak ayarla
-        redirected_output = StringIO()
-        sys.stdout = redirected_output
-        
-        try:
-            # Fonksiyonu çalıştır
-            result = func()
+    def update_result_text(self, text, append=True, clear_first=False):
+        """Thread-safe way to update result text widget"""
+        def _update():
+            if clear_first:
+                self.result_text.delete(1.0, tk.END)
+                
+            if append:
+                current_text = self.result_text.get(1.0, tk.END)
+                if current_text and not current_text.strip() == "":
+                    self.result_text.insert(tk.END, f"\n{text}")
+                else:
+                    self.result_text.insert(tk.END, text)
+            else:
+                self.result_text.delete(1.0, tk.END)
+                self.result_text.insert(tk.END, text)
             
-            # Çıktıyı al
-            output = redirected_output.getvalue()
-            
-            return result, output
-        finally:
-            # Eski stdout'a geri dön
-            sys.stdout = old_stdout
-    
-    def show_cookies_dialog(self):
-        """Çerezleri ayarla dialog'unu göster."""
-        dialog = tk.Toplevel(self)
-        dialog.title("Instagram Çerezleri")
-        dialog.geometry("600x500")
-        dialog.transient(self)  # Ana pencereye bağlı
-        dialog.grab_set()  # Modalı zorunlu kıl
+            # Auto-scroll to the end
+            self.result_text.see(tk.END)
         
-        # Çerezler hakkında bilgi metni
-        info_frame = ttk.LabelFrame(dialog, text="Çerezler Nasıl Alınır")
-        info_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        info_text = scrolledtext.ScrolledText(info_frame, wrap=tk.WORD, height=12)
-        info_text.pack(fill=tk.X, expand=True, padx=5, pady=5)
-        
-        # Adımları dil tercihine göre ekle
-        cookie_steps = self._("cookie_steps")
-        info_text.insert(tk.END, self._("cookies_needed") + "\n\n")
-        for step in cookie_steps:
-            info_text.insert(tk.END, f"{step}\n")
-        
-        info_text.config(state=tk.DISABLED)
-        
-        # Çerez giriş alanı
-        cookie_frame = ttk.LabelFrame(dialog, text="Cookie Değeri")
-        cookie_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        self.cookie_text = scrolledtext.ScrolledText(cookie_frame, wrap=tk.WORD, height=10)
-        self.cookie_text.pack(fill=tk.X, expand=True, padx=5, pady=5)
-        
-        # Mevcut çerezleri yükle
-        if self.stalker.cookies:
-            cookie_str = "; ".join([f"{k}={v}" for k, v in self.stalker.cookies.items()])
-            self.cookie_text.insert(tk.END, cookie_str)
-        
-        # Butonlar
-        button_frame = ttk.Frame(dialog)
-        button_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        save_button = ttk.Button(button_frame, text="Kaydet", command=lambda: self.save_cookies())
-        save_button.pack(side=tk.LEFT, padx=5)
-        
-        cancel_button = ttk.Button(button_frame, text="İptal", command=dialog.destroy)
-        cancel_button.pack(side=tk.LEFT, padx=5)
-        
-        # Dialog'u ortala
-        dialog.update_idletasks()
-        width = dialog.winfo_width()
-        height = dialog.winfo_height()
-        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
-        y = (dialog.winfo_screenheight() // 2) - (height // 2)
-        dialog.geometry(f"{width}x{height}+{x}+{y}")
-    
-    def save_cookies(self):
-        """Çerezleri kaydet."""
-        cookie_str = self.cookie_text.get(1.0, tk.END).strip()
-        
-        if not cookie_str:
-            messagebox.showerror("Hata", "Lütfen geçerli bir cookie değeri girin!")
-            return
-        
-        if self.stalker.set_cookies_from_string(cookie_str):
-            messagebox.showinfo("Başarılı", "Çerezler başarıyla kaydedildi!")
-            self.update_status(self._("cookies_saved", self.stalker.cookies_file))
+        if is_main_thread():
+            _update()
         else:
-            messagebox.showerror("Hata", "Çerezler kaydedilemedi! Lütfen geçerli bir cookie değeri girdiğinizden emin olun.")
+            self.after(0, _update)
     
-    def download_story(self):
-        """Hikaye indirme işlemini başlat."""
-        username = self.story_username_var.get().strip()
+    def update_result_text_widget(self, widget, text, append=True):
+        """Thread-safe way to update any text widget"""
+        def _update():
+            widget.config(state=tk.NORMAL)
+            
+            if append:
+                current_text = widget.get(1.0, tk.END)
+                if current_text and not current_text.strip() == "":
+                    widget.insert(tk.END, f"\n{text}")
+                else:
+                    widget.insert(tk.END, text)
+            else:
+                widget.delete(1.0, tk.END)
+                widget.insert(tk.END, text)
+            
+            # Auto-scroll to the end
+            widget.see(tk.END)
+            widget.config(state=tk.DISABLED)
         
+        if is_main_thread():
+            _update()
+        else:
+            self.after(0, _update)
+    
+    def update_status(self, text):
+        """Thread-safe way to update status label"""
+        def _update():
+            self.status_var.set(text)
+            self.root.update_idletasks()
+        
+        if is_main_thread():
+            _update()
+        else:
+            self.after(0, _update)
+            
+    def download_stories(self):
+        """Download stories of given username"""
+        username = self.username_entry.get().strip()
         if not username:
-            messagebox.showerror("Hata", "Lütfen bir kullanıcı adı girin!")
+            messagebox.showerror(self._("error"), self._("enter_username"))
             return
         
-        # Sonuç alanını temizle
-        self.story_result_text.config(state=tk.NORMAL)
-        self.story_result_text.delete(1.0, tk.END)
-        self.story_result_text.config(state=tk.DISABLED)
+        # Clear previous results and update status
+        self.update_result_text("", append=False)
+        self.update_status(f"{self._('downloading_stories')} {username}...")
         
-        # İndirme işlemini arka planda başlat
-        threading.Thread(target=self._download_story, args=(username,), daemon=True).start()
+        # Start download in a separate thread
+        download_thread = threading.Thread(target=self._download_stories_thread, args=(username,))
+        download_thread.daemon = True
+        download_thread.start()
     
-    def _download_story(self, username):
-        """Hikayeleri indir."""
+    def _download_stories_thread(self, username):
+        """Background thread for downloading stories"""
         try:
-            self.update_result_text(self.story_result_text, self._("downloading_stories", username))
+            # Check for cookies
+            cookies = self.stalker.get_cookies_dict()
+            if not cookies:
+                self.update_status(self._("cookies_required"))
+                self.update_result_text(f"⚠️ {self._('cookies_required_explanation')}")
+                return
             
-            # Çıktıyı yakalamak için işlevi çağır
-            result, output = self.capture_output(lambda: self.stalker.download_story(username))
+            # Get the user ID
+            user_id = self._get_user_id_from_profile(username)
             
-            # Çıktıyı ekrana yazdır
-            for line in output.split('\n'):
-                if line.strip():
-                    self.update_result_text(self.story_result_text, line)
+            if not user_id:
+                self.update_status(self._("user_id_not_found"))
+                self.update_result_text(f"❌ {self._('could_not_find_user_id').format(username=username)}")
+                return
+                
+            # Fetch stories
+            self.update_status(f"{self._('fetching_stories')} {username} (ID: {user_id})...")
             
+            start_time = time.time()
+            
+            try:
+                # Create directory for saving if it doesn't exist
+                save_dir = os.path.join("instagram_content", "stories", username)
+                os.makedirs(save_dir, exist_ok=True)
+                
+                story_response = self.stalker.get_stories(user_id)
+                
+                # Check if there are any stories
+                if not story_response.get("reels_media"):
+                    self.update_status(f"{self._('no_stories')} {username}")
+                    self.update_result_text(f"ℹ️ {self._('no_active_stories').format(username=username)}")
+                    return
+                
+                stories = story_response["reels_media"][0]["items"]
+                story_count = len(stories)
+                
+                self.update_status(f"{self._('found_stories').format(count=story_count, username=username)}")
+                self.update_result_text(f"🔍 {self._('found_stories').format(count=story_count, username=username)}")
+                
+                # Download each story
+                for i, story in enumerate(stories, 1):
+                    self.update_status(f"{self._('downloading_story')} {i}/{story_count}...")
+                    
+                    # Determine if it's a photo or video
+                    if "video_versions" in story:
+                        # It's a video
+                        video_url = story["video_versions"][0]["url"]
+                        timestamp = story.get("taken_at", int(time.time()))
+                        date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
+                        filename = f"{date_str}_video.mp4"
+                        file_path = os.path.join(save_dir, filename)
+                        
+                        # Download the video
+                        with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                        
+                        media_type = self._("video")
+                    else:
+                        # It's an image
+                        image_url = story["image_versions2"]["candidates"][0]["url"]
+                        timestamp = story.get("taken_at", int(time.time()))
+                        date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
+                        filename = f"{date_str}_image.jpg"
+                        file_path = os.path.join(save_dir, filename)
+                        
+                        # Download the image
+                        with requests.get(image_url, timeout=(10, 30)) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                f.write(r.content)
+                        
+                        media_type = self._("image")
+                    
+                    self.update_result_text(f"✅ {self._('downloaded_story').format(number=i, type=media_type)}")
+                
+                elapsed_time = time.time() - start_time
+                self.update_status(f"{self._('download_complete')} ({story_count} {self._('stories')} - {elapsed_time:.1f}s)")
+                self.update_result_text(f"\n📁 {self._('saved_in').format(path=save_dir)}")
+                
+            except requests.RequestException as e:
+                self.update_status(f"{self._('network_error')}: {e}")
+                self.update_result_text(f"❌ {self._('network_error')}: {e}")
+            except json.JSONDecodeError:
+                self.update_status(self._("invalid_response"))
+                self.update_result_text(f"❌ {self._('invalid_response_explanation')}")
+            except KeyError as e:
+                self.update_status(f"{self._('format_error')}: {e}")
+                self.update_result_text(f"❌ {self._('format_error_explanation')}")
+                
         except Exception as e:
-            self.update_result_text(self.story_result_text, f"❌ Hata: {str(e)}")
+            self.update_status(f"{self._('error')}: {e}")
+            self.update_result_text(f"❌ {self._('unexpected_error')}: {str(e)}")
+            # Log more detailed error information for debugging
+            import traceback
+            print(f"Error in download_stories: {traceback.format_exc()}")
     
-    def download_post(self):
-        """Gönderi indirme işlemini başlat."""
-        post_url = self.post_url_var.get().strip()
-        
-        if not post_url:
-            messagebox.showerror("Hata", "Lütfen bir gönderi URL'si girin!")
+    def download_posts(self):
+        """Download posts of given username"""
+        username = self.username_entry.get().strip()
+        if not username:
+            messagebox.showerror(self._("error"), self._("enter_username"))
             return
         
-        # Sonuç alanını temizle
-        self.post_result_text.config(state=tk.NORMAL)
-        self.post_result_text.delete(1.0, tk.END)
-        self.post_result_text.config(state=tk.DISABLED)
+        limit = simpledialog.askinteger(
+            self._("post_limit"), 
+            self._("post_limit_prompt"),
+            initialvalue=5,
+            minvalue=1,
+            maxvalue=50
+        )
         
-        # İndirme işlemini arka planda başlat
-        threading.Thread(target=self._download_post, args=(post_url,), daemon=True).start()
-    
-    def _download_post(self, post_url):
-        """Gönderiyi indir."""
+        if limit is None:
+            return  # User cancelled the dialog
+        
+        # Clear previous results and update status
+        self.update_result_text("", append=False)
+        self.update_status(f"{self._('downloading_posts')} {username} ({limit} posts)...")
+        
+        # Start download in a separate thread
+        download_thread = threading.Thread(target=self._download_posts_thread, args=(username, limit))
+        download_thread.daemon = True
+        download_thread.start()
+        
+    def _download_posts_thread(self, username, limit):
+        """Background thread for downloading posts"""
         try:
-            self.update_result_text(self.post_result_text, self._("downloading_post", post_url))
+            # Check for cookies
+            cookies = self.stalker.get_cookies_dict()
+            if not cookies:
+                self.update_status(self._("cookies_required"))
+                self.update_result_text(f"⚠️ {self._('cookies_required_explanation')}")
+                return
+                
+            # Get the user ID (optional for posts but useful for better queries)
+            user_id = self._get_user_id_from_profile(username)
             
-            # Çıktıyı yakalamak için işlevi çağır
-            result, output = self.capture_output(lambda: self.stalker.download_post(post_url))
+            start_time = time.time()
             
-            # Çıktıyı ekrana yazdır
-            for line in output.split('\n'):
-                if line.strip():
-                    self.update_result_text(self.post_result_text, line)
-            
+            try:
+                # Create directory for saving if it doesn't exist
+                save_dir = os.path.join("instagram_content", "posts", username)
+                os.makedirs(save_dir, exist_ok=True)
+                
+                # Fetch and download posts
+                posts = self.stalker.get_posts(username, limit)
+                
+                if not posts:
+                    self.update_status(f"{self._('no_posts')} {username}")
+                    self.update_result_text(f"ℹ️ {self._('no_posts_found').format(username=username)}")
+                    return
+                
+                post_count = len(posts)
+                self.update_status(f"{self._('found_posts').format(count=post_count, username=username)}")
+                self.update_result_text(f"🔍 {self._('found_posts').format(count=post_count, username=username)}")
+                
+                # Track downloaded media count
+                total_media = 0
+                
+                # Download each post
+                for i, post in enumerate(posts, 1):
+                    self.update_status(f"{self._('downloading_post')} {i}/{post_count}...")
+                    
+                    # Get post timestamp for filename
+                    timestamp = post.get("taken_at", int(time.time()))
+                    date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
+                    
+                    # Handle carousel posts
+                    if post.get("carousel_media"):
+                        # Multiple images/videos in one post
+                        for j, media in enumerate(post["carousel_media"], 1):
+                            if media.get("video_versions"):
+                                # Download video from carousel
+                                video_url = media["video_versions"][0]["url"]
+                                filename = f"{date_str}_carousel_{j}_video.mp4"
+                                file_path = os.path.join(save_dir, filename)
+                                
+                                with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
+                                    r.raise_for_status()
+                                    with open(file_path, 'wb') as f:
+                                        for chunk in r.iter_content(chunk_size=8192):
+                                            f.write(chunk)
+                                
+                                media_type = self._("video")
+                            else:
+                                # Download image from carousel
+                                image_url = media["image_versions2"]["candidates"][0]["url"]
+                                filename = f"{date_str}_carousel_{j}_image.jpg"
+                                file_path = os.path.join(save_dir, filename)
+                                
+                                with requests.get(image_url, timeout=(10, 30)) as r:
+                                    r.raise_for_status()
+                                    with open(file_path, 'wb') as f:
+                                        f.write(r.content)
+                                
+                                media_type = self._("image")
+                            
+                            total_media += 1
+                            self.update_result_text(f"✅ {self._('downloaded_carousel_item').format(post=i, item=j, type=media_type)}")
+                    
+                    elif post.get("video_versions"):
+                        # Single video post
+                        video_url = post["video_versions"][0]["url"]
+                        filename = f"{date_str}_video.mp4"
+                        file_path = os.path.join(save_dir, filename)
+                        
+                        with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                        
+                        total_media += 1
+                        self.update_result_text(f"✅ {self._('downloaded_post').format(number=i, type=self._('video'))}")
+                    
+                    else:
+                        # Single image post
+                        image_url = post["image_versions2"]["candidates"][0]["url"]
+                        filename = f"{date_str}_image.jpg"
+                        file_path = os.path.join(save_dir, filename)
+                        
+                        with requests.get(image_url, timeout=(10, 30)) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                f.write(r.content)
+                        
+                        total_media += 1
+                        self.update_result_text(f"✅ {self._('downloaded_post').format(number=i, type=self._('image'))}")
+                
+                elapsed_time = time.time() - start_time
+                self.update_status(f"{self._('download_complete')} ({total_media} {self._('media')} - {elapsed_time:.1f}s)")
+                self.update_result_text(f"\n📁 {self._('saved_in').format(path=save_dir)}")
+                
+            except requests.RequestException as e:
+                self.update_status(f"{self._('network_error')}: {e}")
+                self.update_result_text(f"❌ {self._('network_error')}: {e}")
+            except json.JSONDecodeError:
+                self.update_status(self._("invalid_response"))
+                self.update_result_text(f"❌ {self._('invalid_response_explanation')}")
+            except KeyError as e:
+                self.update_status(f"{self._('format_error')}: {e}")
+                self.update_result_text(f"❌ {self._('format_error_explanation')}")
+                
         except Exception as e:
-            self.update_result_text(self.post_result_text, f"❌ Hata: {str(e)}")
+            self.update_status(f"{self._('error')}: {e}")
+            self.update_result_text(f"❌ {self._('unexpected_error')}: {str(e)}")
+            # Log more detailed error information for debugging
+            import traceback
+            print(f"Error in download_posts: {traceback.format_exc()}")
     
     def download_profile(self):
         """Profil indirme işlemini başlat."""
@@ -724,13 +868,13 @@ class InstaStalkGUI(tk.Tk):
             choice = str(option)
             
             # InstaStalker sınıfında _download_batch metodunu taklit et
-            self.update_result_text(self.batch_result_text, self._("batch_download_start", username))
+            self.update_result_text(self._("batch_download_start", username))
             
             success = True
             
             # Hikayeleri indir
             if choice in ["1", "3"]:
-                self.update_result_text(self.batch_result_text, self._("downloading_stories", username))
+                self.update_result_text(self._("downloading_stories", username))
                 _, output = self.capture_output(lambda: self.stalker.download_story(username))
                 
                 # Çıktıyı ekrana yazdır
@@ -744,7 +888,7 @@ class InstaStalkGUI(tk.Tk):
             
             # Son gönderileri indir
             if choice in ["2", "3"]:
-                self.update_result_text(self.batch_result_text, self._("downloading_posts", username, 12))
+                self.update_result_text(self._("downloading_posts", username, 12))
                 _, output = self.capture_output(lambda: self.stalker.download_recent_posts(username))
                 
                 # Çıktıyı ekrana yazdır
@@ -757,43 +901,31 @@ class InstaStalkGUI(tk.Tk):
                     success = False
             
             if success:
-                self.update_result_text(self.batch_result_text, self._("batch_download_complete"))
+                self.update_result_text(self._("batch_download_complete"))
                 
         except Exception as e:
-            self.update_result_text(self.batch_result_text, self._("batch_download_error", str(e)))
+            self.update_result_text(self._("batch_download_error", str(e)))
     
     def show_downloads(self):
-        """İndirilen dosyaları göster."""
-        # Sonuç dialog'unu göster
-        dialog = tk.Toplevel(self)
-        dialog.title("İndirilen Dosyalar")
-        dialog.geometry("500x400")
-        dialog.transient(self)  # Ana pencereye bağlı
+        """Show downloads folder in file explorer in a platform-independent way"""
+        download_dir = os.path.abspath("instagram_content")
         
-        # Indirilenler alanı
-        result_text = scrolledtext.ScrolledText(dialog, wrap=tk.WORD)
-        result_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        if not os.path.exists(download_dir):
+            os.makedirs(download_dir, exist_ok=True)
         
-        # Çıktıyı yakalamak için işlevi çağır
-        result, output = self.capture_output(lambda: self.stalker.list_downloads())
-        
-        # Çıktıyı ekrana yazdır
-        result_text.insert(tk.END, output)
-        result_text.config(state=tk.DISABLED)
-        
-        # Klasörü aç butonu
-        open_button = ttk.Button(dialog, text="İndirilenler Klasörünü Aç", 
-                                command=lambda: os.startfile(self.stalker.base_dir) if os.name == 'nt' 
-                                else webbrowser.open('file://' + os.path.realpath(self.stalker.base_dir)))
-        open_button.pack(side=tk.BOTTOM, pady=10)
-        
-        # Dialog'u ortala
-        dialog.update_idletasks()
-        width = dialog.winfo_width()
-        height = dialog.winfo_height()
-        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
-        y = (dialog.winfo_screenheight() // 2) - (height // 2)
-        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        # Open file explorer in a platform-independent way
+        try:
+            if sys.platform == "win32":
+                os.startfile(download_dir)
+            elif sys.platform == "darwin":  # macOS
+                subprocess.run(["open", download_dir], check=True)
+            else:  # Linux
+                subprocess.run(["xdg-open", download_dir], check=True)
+            
+            self.update_status(f"{self._('opened_folder')}: {download_dir}")
+        except Exception as e:
+            self.update_status(f"{self._('error_opening_folder')}: {e}")
+            self.update_result_text(f"📁 {self._('downloads_located_at')}: {download_dir}")
     
     def clean_downloads(self):
         """Tüm indirilen dosyaları temizle."""
@@ -879,11 +1011,11 @@ class InstaStalkGUI(tk.Tk):
     def _fetch_highlights_thread(self, username):
         try:
             self.update_status(f"{username} kullanıcısının öne çıkan hikayeleri getiriliyor...")
-            self.update_result_text(self.highlights_result_text, f"⏳ {username} kullanıcısının öne çıkan hikayeleri getiriliyor...\n")
+            self.update_result_text_widget(self.highlights_result_text, f"⏳ {username} kullanıcısının öne çıkan hikayeleri getiriliyor...\n")
             
             # Cookies kontrolü
             if not self.stalker.cookies:
-                self.update_result_text(self.highlights_result_text, "❌ Çerezler ayarlanmamış. Lütfen önce çerezleri ayarlayın.\n")
+                self.update_result_text_widget(self.highlights_result_text, "❌ Çerezler ayarlanmamış. Lütfen önce çerezleri ayarlayın.\n")
                 messagebox.showerror("Hata", "Çerezler ayarlanmamış. Lütfen önce çerezleri ayarlayın.")
                 return
             
@@ -894,7 +1026,7 @@ class InstaStalkGUI(tk.Tk):
             response = requests.get(f"https://www.instagram.com/{username}/", headers=headers, cookies=self.stalker.cookies)
             
             if response.status_code != 200:
-                self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının profili bulunamadı.\n")
+                self.update_result_text_widget(self.highlights_result_text, f"❌ {username} kullanıcısının profili bulunamadı.\n")
                 return
             
             # Kullanıcı ID'sini bulacak birden fazla regex dene
@@ -960,11 +1092,11 @@ class InstaStalkGUI(tk.Tk):
                     user_id = max(common_ids.items(), key=lambda x: x[1])[0]
             
             if not user_id:
-                self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının ID'si bulunamadı.\n")
-                self.update_result_text(self.highlights_result_text, "🔍 Instagram'ın yaptığı güncellemeler nedeniyle kullanıcı ID'si çıkarılamıyor.\n")
+                self.update_result_text_widget(self.highlights_result_text, f"❌ {username} kullanıcısının ID'si bulunamadı.\n")
+                self.update_result_text_widget(self.highlights_result_text, "🔍 Instagram'ın yaptığı güncellemeler nedeniyle kullanıcı ID'si çıkarılamıyor.\n")
                 
                 # Kullanıcıdan manual ID girme seçeneği sun
-                self.update_result_text(self.highlights_result_text, "💡 Kullanıcı ID'sini manuel olarak girebilirsiniz.\n")
+                self.update_result_text_widget(self.highlights_result_text, "💡 Kullanıcı ID'sini manuel olarak girebilirsiniz.\n")
                 
                 # Manuel ID girmek için dialog oluştur
                 manual_id = simpledialog.askstring("Kullanıcı ID'sini Girin", 
@@ -979,12 +1111,12 @@ class InstaStalkGUI(tk.Tk):
                 
                 if manual_id and manual_id.strip() and manual_id.isdigit():
                     user_id = manual_id.strip()
-                    self.update_result_text(self.highlights_result_text, f"✅ Manuel olarak girilen ID kullanılıyor: {user_id}\n")
+                    self.update_result_text_widget(self.highlights_result_text, f"✅ Manuel olarak girilen ID kullanılıyor: {user_id}\n")
                 else:
-                    self.update_result_text(self.highlights_result_text, "❌ Geçerli bir kullanıcı ID'si girilmedi. İşlem iptal edildi.\n")
+                    self.update_result_text_widget(self.highlights_result_text, "❌ Geçerli bir kullanıcı ID'si girilmedi. İşlem iptal edildi.\n")
                     return
             
-            self.update_result_text(self.highlights_result_text, f"✅ Kullanıcı ID'si bulundu: {user_id}\n")
+            self.update_result_text_widget(self.highlights_result_text, f"✅ Kullanıcı ID'si bulundu: {user_id}\n")
             
             # Highlights API'sine istek gönder
             # Güncel query_hash değeri kullanılıyor
@@ -993,18 +1125,18 @@ class InstaStalkGUI(tk.Tk):
             highlights_response = requests.get(highlights_url, headers=headers, cookies=self.stalker.cookies)
             
             if highlights_response.status_code != 200:
-                self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının öne çıkan hikayeleri alınamadı.\n")
+                self.update_result_text_widget(self.highlights_result_text, f"❌ {username} kullanıcısının öne çıkan hikayeleri alınamadı.\n")
                 return
             
             # Highlights verilerini ayrıştır
             try:
                 highlights_data = highlights_response.json()
                 if not highlights_data:
-                    self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının öne çıkan hikayeleri için geçerli veri alınamadı.\n")
+                    self.update_result_text_widget(self.highlights_result_text, f"❌ {username} kullanıcısının öne çıkan hikayeleri için geçerli veri alınamadı.\n")
                     return
                 
                 # Yanıt yapısını inceleme
-                self.update_result_text(self.highlights_result_text, f"ℹ️ API yanıtı inceleniyor...\n")
+                self.update_result_text_widget(self.highlights_result_text, f"ℹ️ API yanıtı inceleniyor...\n")
                 
                 # Yanıt yapısını kontrol et ve farklı formatları dene
                 highlights = None
@@ -1020,7 +1152,7 @@ class InstaStalkGUI(tk.Tk):
                             edge_highlight_reels = user_data['edge_highlight_reels']
                             if 'edges' in edge_highlight_reels:
                                 highlights = edge_highlight_reels['edges']
-                                self.update_result_text(self.highlights_result_text, "✅ Highlight verisi bulundu: data.user.edge_highlight_reels.edges yapısında\n")
+                                self.update_result_text_widget(self.highlights_result_text, "✅ Highlight verisi bulundu: data.user.edge_highlight_reels.edges yapısında\n")
                 
                 # Format 2: user.edge_highlight_reels.edges - eskiden kalan eski yöntem, yine de deneyelim
                 if not highlights and 'user' in highlights_data and highlights_data.get('user'):
@@ -1052,7 +1184,7 @@ class InstaStalkGUI(tk.Tk):
                     if 'data' in highlights_data:
                         debug_str += "'data' anahtarının içindeki anahtarlar: " + ", ".join(highlights_data['data'].keys()) + "\n"
                     
-                    self.update_result_text(self.highlights_result_text, debug_str)
+                    self.update_result_text_widget(self.highlights_result_text, debug_str)
                     
                     # Kullanıcıya manuel olarak devam etme seçeneği sun
                     highlights_manual = simpledialog.askstring("Öne Çıkan Hikayeleri Manuel Bul", 
@@ -1074,29 +1206,29 @@ class InstaStalkGUI(tk.Tk):
                             
                             if current and isinstance(current, list):
                                 highlights = current
-                                self.update_result_text(self.highlights_result_text, f"✅ Manuel olarak belirtilen yoldan öne çıkan hikayeler bulundu.\n")
+                                self.update_result_text_widget(self.highlights_result_text, f"✅ Manuel olarak belirtilen yoldan öne çıkan hikayeler bulundu.\n")
                             else:
-                                self.update_result_text(self.highlights_result_text, f"❌ Belirtilen yoldan geçerli bir liste bulunamadı.\n")
+                                self.update_result_text_widget(self.highlights_result_text, f"❌ Belirtilen yoldan geçerli bir liste bulunamadı.\n")
                                 return
                         except Exception as e:
-                            self.update_result_text(self.highlights_result_text, f"❌ Manuel yol işlenirken hata: {str(e)}\n")
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Manuel yol işlenirken hata: {str(e)}\n")
                             return
                     else:
-                        self.update_result_text(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
+                        self.update_result_text_widget(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
                         return
                 
             except Exception as e:
-                self.update_result_text(self.highlights_result_text, f"❌ Highlights verisi ayrıştırılamadı: {str(e)}\n")
+                self.update_result_text_widget(self.highlights_result_text, f"❌ Highlights verisi ayrıştırılamadı: {str(e)}\n")
                 error_details = f"Response status: {highlights_response.status_code}, Content: {highlights_response.text[:100]}..."
-                self.update_result_text(self.highlights_result_text, f"Hata detayları: {error_details}\n")
+                self.update_result_text_widget(self.highlights_result_text, f"Hata detayları: {error_details}\n")
                 return
             
             if not highlights:
-                self.update_result_text(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
+                self.update_result_text_widget(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
                 return
             
             # Öne çıkan hikayeleri listele
-            self.update_result_text(self.highlights_result_text, f"✅ {username} kullanıcısının {len(highlights)} adet öne çıkan hikayesi bulundu.\n")
+            self.update_result_text_widget(self.highlights_result_text, f"✅ {username} kullanıcısının {len(highlights)} adet öne çıkan hikayesi bulundu.\n")
             
             # Highlight bilgilerini sakla
             self.current_highlights = []
@@ -1123,7 +1255,7 @@ class InstaStalkGUI(tk.Tk):
             self.update_status(f"{username} kullanıcısının öne çıkan hikayeleri listelendi")
             
         except Exception as e:
-            self.update_result_text(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
+            self.update_result_text_widget(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
             messagebox.showerror("Hata", f"Öne çıkan hikayeler alınırken bir hata oluştu: {str(e)}")
     
     def download_selected_highlight(self):
@@ -1156,12 +1288,19 @@ class InstaStalkGUI(tk.Tk):
             title = highlight['title']
             highlight_id = highlight['id']
             self.update_status(f"'{title}' öne çıkan hikayesi indiriliyor...")
-            self.update_result_text(self.highlights_result_text, f"\n⏳ '{title}' öne çıkan hikayesi indiriliyor...\n")
+            self.update_result_text_widget(self.highlights_result_text, f"\n⏳ '{title}' öne çıkan hikayesi indiriliyor...\n")
             
             # Klasör oluştur
-            base_dir = self.stalker.content_types["stories"] / username / "highlights"
-            highlight_dir = base_dir / title.replace("/", "_").replace("\\", "_")
-            highlight_dir.mkdir(exist_ok=True, parents=True)
+            try:
+                base_dir = self.stalker.content_types["stories"] / username / "highlights"
+                highlight_dir = base_dir / title.replace("/", "_").replace("\\", "_")
+                highlight_dir.mkdir(exist_ok=True, parents=True)
+            except PermissionError as e:
+                self.update_result_text_widget(self.highlights_result_text, f"❌ Klasör oluşturma izin hatası: {str(e)}\n")
+                return False
+            except Exception as e:
+                self.update_result_text_widget(self.highlights_result_text, f"❌ Klasör oluşturma hatası: {str(e)}\n")
+                return False
             
             # Highlight içeriğini al
             headers = {
@@ -1171,20 +1310,32 @@ class InstaStalkGUI(tk.Tk):
             # Güncel API query_hash kullan
             highlight_url = f"https://www.instagram.com/graphql/query/?query_hash=45246d3fe16ccc6577e0bd297a5db1ab&variables=%7B%22reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22tag_names%22%3A%5B%5D%2C%22location_ids%22%3A%5B%5D%2C%22highlight_reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22precomposed_overlay%22%3Afalse%7D"
             
-            highlight_response = requests.get(highlight_url, headers=headers, cookies=self.stalker.cookies)
+            try:
+                # Timeout ekle - 30 saniye bağlantı, 60 saniye okuma için
+                highlight_response = requests.get(highlight_url, headers=headers, cookies=self.stalker.cookies, 
+                                                timeout=(30, 60))
+            except requests.exceptions.Timeout:
+                self.update_result_text_widget(self.highlights_result_text, f"❌ API isteği zaman aşımına uğradı. Lütfen internet bağlantınızı kontrol edin.\n")
+                return False
+            except requests.exceptions.ConnectionError:
+                self.update_result_text_widget(self.highlights_result_text, f"❌ Bağlantı hatası. Lütfen internet bağlantınızı kontrol edin.\n")
+                return False
+            except requests.exceptions.RequestException as e:
+                self.update_result_text_widget(self.highlights_result_text, f"❌ API istek hatası: {str(e)}\n")
+                return False
             
             if highlight_response.status_code != 200:
-                self.update_result_text(self.highlights_result_text, f"❌ Highlight içeriği alınamadı. HTTP Kodu: {highlight_response.status_code}\n")
-                return
+                self.update_result_text_widget(self.highlights_result_text, f"❌ Highlight içeriği alınamadı. HTTP Kodu: {highlight_response.status_code}\n")
+                return False
             
             # Highlight verisini ayrıştır
             try:
                 highlight_data = highlight_response.json()
                 if not highlight_data:
-                    self.update_result_text(self.highlights_result_text, f"❌ Highlight verisi alınamadı veya boş.\n")
-                    return
+                    self.update_result_text_widget(self.highlights_result_text, f"❌ Highlight verisi alınamadı veya boş.\n")
+                    return False
                 
-                self.update_result_text(self.highlights_result_text, f"ℹ️ Highlight medya verileri inceleniyor...\n")
+                self.update_result_text_widget(self.highlights_result_text, f"ℹ️ Highlight medya verileri inceleniyor...\n")
                 
                 # Medya içeriğine erişim için farklı JSON yapılarını dene
                 media_items = []
@@ -1194,20 +1345,20 @@ class InstaStalkGUI(tk.Tk):
                     reels_media = highlight_data['data']['reels_media']
                     if reels_media and len(reels_media) > 0 and 'items' in reels_media[0]:
                         media_items = reels_media[0]['items']
-                        self.update_result_text(self.highlights_result_text, f"✅ Highlight medya içeriği bulundu: {len(media_items)} öğe\n")
+                        self.update_result_text_widget(self.highlights_result_text, f"✅ Highlight medya içeriği bulundu: {len(media_items)} öğe\n")
                 
                 # Alternatif path: data.reels.{highlight_id}.items
                 if not media_items and 'data' in highlight_data and 'reels' in highlight_data['data']:
                     reels = highlight_data['data']['reels']
                     if highlight_id in reels and 'items' in reels[highlight_id]:
                         media_items = reels[highlight_id]['items']
-                        self.update_result_text(self.highlights_result_text, f"✅ Medya içeriği alternatif yoldan bulundu: {len(media_items)} öğe\n")
+                        self.update_result_text_widget(self.highlights_result_text, f"✅ Medya içeriği alternatif yoldan bulundu: {len(media_items)} öğe\n")
                 
                 # Medya bulunamadıysa JSON yapısını incele ve manuel giriş iste
                 if not media_items:
-                    self.update_result_text(self.highlights_result_text, f"❌ Medya içeriği bulunamadı. API yanıt yapısı inceleniyor...\n")
+                    self.update_result_text_widget(self.highlights_result_text, f"❌ Medya içeriği bulunamadı. API yanıt yapısı inceleniyor...\n")
                     debug_str = f"API yanıt verileri (ilk 500 karakter):\n{json.dumps(highlight_data)[:500]}...\n"
-                    self.update_result_text(self.highlights_result_text, debug_str)
+                    self.update_result_text_widget(self.highlights_result_text, debug_str)
                     
                     # Kullanıcıdan manuel JSON yolu al
                     manual_path = simpledialog.askstring("Medya İçeriğini Manuel Bul", 
@@ -1216,8 +1367,8 @@ class InstaStalkGUI(tk.Tk):
                                                        "nokta ile ayırarak girin (örn: 'data.reels_media.0.items'):")
                     
                     if not manual_path:
-                        self.update_result_text(self.highlights_result_text, "❌ İşlem iptal edildi.\n")
-                        return
+                        self.update_result_text_widget(self.highlights_result_text, "❌ İşlem iptal edildi.\n")
+                        return False
                     
                     try:
                         # Nokta notasyonu ile verilen yolu takip et
@@ -1232,17 +1383,23 @@ class InstaStalkGUI(tk.Tk):
                         
                         if isinstance(current, list):
                             media_items = current
-                            self.update_result_text(self.highlights_result_text, f"✅ Medya içeriği manuel yoldan bulundu: {len(media_items)} öğe\n")
+                            self.update_result_text_widget(self.highlights_result_text, f"✅ Medya içeriği manuel yoldan bulundu: {len(media_items)} öğe\n")
                         else:
-                            self.update_result_text(self.highlights_result_text, "❌ Belirtilen yolda liste tipi medya verisi bulunamadı.\n")
-                            return
+                            self.update_result_text_widget(self.highlights_result_text, "❌ Belirtilen yolda liste tipi medya verisi bulunamadı.\n")
+                            return False
+                    except KeyError as e:
+                        self.update_result_text_widget(self.highlights_result_text, f"❌ Belirtilen anahtar bulunamadı: {str(e)}\n")
+                        return False
+                    except IndexError as e:
+                        self.update_result_text_widget(self.highlights_result_text, f"❌ Belirtilen indeks bulunamadı: {str(e)}\n")
+                        return False
                     except Exception as e:
-                        self.update_result_text(self.highlights_result_text, f"❌ Manuel yol işlenirken hata: {str(e)}\n")
-                        return
+                        self.update_result_text_widget(self.highlights_result_text, f"❌ Manuel yol işlenirken hata: {str(e)}\n")
+                        return False
                 
                 if not media_items:
-                    self.update_result_text(self.highlights_result_text, f"❌ '{title}' için indirilebilir medya bulunamadı.\n")
-                    return
+                    self.update_result_text_widget(self.highlights_result_text, f"❌ '{title}' için indirilebilir medya bulunamadı.\n")
+                    return False
                 
                 # Highlight medyalarını indir
                 downloaded_count = 0
@@ -1267,7 +1424,7 @@ class InstaStalkGUI(tk.Tk):
                             video_url = item['video_resources'][0].get('src')
                         
                         if not video_url:
-                            self.update_result_text(self.highlights_result_text, f"⚠️ Video URL'si bulunamadı: {media_id}\n")
+                            self.update_result_text_widget(self.highlights_result_text, f"⚠️ Video URL'si bulunamadı: {media_id}\n")
                             continue
                         
                         # Dosya adı ve yolu
@@ -1275,17 +1432,24 @@ class InstaStalkGUI(tk.Tk):
                         video_path = highlight_dir / video_filename
                         
                         # Video indir
-                        self.update_result_text(self.highlights_result_text, f"⏳ Video indiriliyor [{i+1}/{len(media_items)}]: {media_id}\n")
+                        self.update_result_text_widget(self.highlights_result_text, f"⏳ Video indiriliyor [{i+1}/{len(media_items)}]: {media_id}\n")
                         try:
-                            video_response = requests.get(video_url, stream=True)
+                            # Timeout ekle
+                            video_response = requests.get(video_url, stream=True, timeout=(30, 120))
                             with open(video_path, 'wb') as f:
                                 for chunk in video_response.iter_content(chunk_size=8192):
                                     if chunk:
                                         f.write(chunk)
                             downloaded_count += 1
-                            self.update_result_text(self.highlights_result_text, f"✅ Video indirildi: {video_filename}\n")
+                            self.update_result_text_widget(self.highlights_result_text, f"✅ Video indirildi: {video_filename}\n")
+                        except requests.exceptions.Timeout:
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Video indirirken zaman aşımı: {media_id}\n")
+                        except requests.exceptions.ConnectionError:
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Video indirirken bağlantı hatası: {media_id}\n")
+                        except IOError as e:
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Video dosyasına yazma hatası: {str(e)}\n")
                         except Exception as e:
-                            self.update_result_text(self.highlights_result_text, f"❌ Video indirme hatası: {str(e)}\n")
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Video indirme hatası: {str(e)}\n")
                     else:
                         # Resim URL'sini bul
                         image_url = None
@@ -1304,7 +1468,7 @@ class InstaStalkGUI(tk.Tk):
                             image_url = sorted_resources[0].get('src')
                         
                         if not image_url:
-                            self.update_result_text(self.highlights_result_text, f"⚠️ Resim URL'si bulunamadı: {media_id}\n")
+                            self.update_result_text_widget(self.highlights_result_text, f"⚠️ Resim URL'si bulunamadı: {media_id}\n")
                             continue
                         
                         # Dosya adı ve yolu
@@ -1312,33 +1476,44 @@ class InstaStalkGUI(tk.Tk):
                         image_path = highlight_dir / image_filename
                         
                         # Resim indir
-                        self.update_result_text(self.highlights_result_text, f"⏳ Resim indiriliyor [{i+1}/{len(media_items)}]: {media_id}\n")
+                        self.update_result_text_widget(self.highlights_result_text, f"⏳ Resim indiriliyor [{i+1}/{len(media_items)}]: {media_id}\n")
                         try:
-                            image_response = requests.get(image_url)
+                            # Timeout ekle
+                            image_response = requests.get(image_url, timeout=(30, 60))
                             with open(image_path, 'wb') as f:
                                 f.write(image_response.content)
                             downloaded_count += 1
-                            self.update_result_text(self.highlights_result_text, f"✅ Resim indirildi: {image_filename}\n")
+                            self.update_result_text_widget(self.highlights_result_text, f"✅ Resim indirildi: {image_filename}\n")
+                        except requests.exceptions.Timeout:
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Resim indirirken zaman aşımı: {media_id}\n")
+                        except requests.exceptions.ConnectionError:
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Resim indirirken bağlantı hatası: {media_id}\n")
+                        except IOError as e:
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Resim dosyasına yazma hatası: {str(e)}\n")
                         except Exception as e:
-                            self.update_result_text(self.highlights_result_text, f"❌ Resim indirme hatası: {str(e)}\n")
+                            self.update_result_text_widget(self.highlights_result_text, f"❌ Resim indirme hatası: {str(e)}\n")
                 
                 if downloaded_count > 0:
-                    self.update_result_text(self.highlights_result_text, f"\n✅ '{title}' öne çıkan hikayesi başarıyla indirildi ({downloaded_count}/{len(media_items)} medya)\n")
-                    self.update_result_text(self.highlights_result_text, f"📂 İndirilen medyalar: {highlight_dir}\n")
+                    self.update_result_text_widget(self.highlights_result_text, f"\n✅ '{title}' öne çıkan hikayesi başarıyla indirildi ({downloaded_count}/{len(media_items)} medya)\n")
+                    self.update_result_text_widget(self.highlights_result_text, f"📂 İndirilen medyalar: {highlight_dir}\n")
                     self.update_status(f"'{title}' öne çıkan hikayesi başarıyla indirildi")
                     return True
                 else:
-                    self.update_result_text(self.highlights_result_text, f"❌ '{title}' öne çıkan hikayesinden hiç bir medya indirilemedi.\n")
+                    self.update_result_text_widget(self.highlights_result_text, f"❌ '{title}' öne çıkan hikayesinden hiç bir medya indirilemedi.\n")
                     self.update_status(f"'{title}' öne çıkan hikayesi indirilirken bir hata oluştu")
                     return False
                     
+            except json.JSONDecodeError as e:
+                self.update_result_text_widget(self.highlights_result_text, f"❌ API yanıtı JSON formatında değil: {str(e)}\n")
+                self.update_status(f"'{title}' öne çıkan hikayesi indirilirken bir hata oluştu")
+                return False
             except Exception as e:
-                self.update_result_text(self.highlights_result_text, f"❌ Highlight verisi ayrıştırılırken hata: {str(e)}\n")
+                self.update_result_text_widget(self.highlights_result_text, f"❌ Highlight verisi ayrıştırılırken hata: {str(e)}\n")
                 self.update_status(f"'{title}' öne çıkan hikayesi indirilirken bir hata oluştu")
                 return False
                 
         except Exception as e:
-            self.update_result_text(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
+            self.update_result_text_widget(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
             messagebox.showerror("Hata", f"Öne çıkan hikaye indirilirken bir hata oluştu: {str(e)}")
             return False
     
@@ -1346,7 +1521,7 @@ class InstaStalkGUI(tk.Tk):
         """Arka planda tüm öne çıkan hikayeleri indir."""
         try:
             self.update_status(f"{username} kullanıcısının tüm öne çıkan hikayeleri indiriliyor...")
-            self.update_result_text(self.highlights_result_text, f"\n⏳ {len(highlights)} adet öne çıkan hikaye indiriliyor...\n")
+            self.update_result_text_widget(self.highlights_result_text, f"\n⏳ {len(highlights)} adet öne çıkan hikaye indiriliyor...\n")
             
             base_dir = self.stalker.content_types["stories"] / username / "highlights"
             base_dir.mkdir(exist_ok=True, parents=True)
@@ -1356,7 +1531,7 @@ class InstaStalkGUI(tk.Tk):
             
             for i, highlight in enumerate(highlights, 1):
                 title = highlight['title']
-                self.update_result_text(self.highlights_result_text, f"⏳ [{i}/{len(highlights)}] '{title}' öne çıkan hikayesi indiriliyor...\n")
+                self.update_result_text_widget(self.highlights_result_text, f"⏳ [{i}/{len(highlights)}] '{title}' öne çıkan hikayesi indiriliyor...\n")
                 
                 try:
                     success = self._download_highlight_thread(username, highlight)
@@ -1364,21 +1539,112 @@ class InstaStalkGUI(tk.Tk):
                         success_count += 1
                     else:
                         fail_count += 1
-                        self.update_result_text(self.highlights_result_text, f"❌ '{title}' öne çıkan hikayesi indirilemedi\n")
+                        self.update_result_text_widget(self.highlights_result_text, f"❌ '{title}' öne çıkan hikayesi indirilemedi\n")
                 except Exception as e:
                     fail_count += 1
-                    self.update_result_text(self.highlights_result_text, f"❌ '{title}' indirilirken hata: {str(e)}\n")
+                    self.update_result_text_widget(self.highlights_result_text, f"❌ '{title}' indirilirken hata: {str(e)}\n")
             
             summary = f"\n✅ Toplam {len(highlights)} öne çıkan hikayeden {success_count} tanesi başarıyla indirildi"
             if fail_count > 0:
                 summary += f", {fail_count} tanesi başarısız oldu"
                 
-            self.update_result_text(self.highlights_result_text, summary + "\n")
+            self.update_result_text_widget(self.highlights_result_text, summary + "\n")
             self.update_status(f"{username} kullanıcısının öne çıkan hikayeleri indirildi ({success_count}/{len(highlights)})")
             
         except Exception as e:
-            self.update_result_text(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
+            self.update_result_text_widget(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
             messagebox.showerror("Hata", f"Öne çıkan hikayeler indirilirken bir hata oluştu: {str(e)}")
+
+    def _get_user_id_from_profile(self, username):
+        """
+        Get user ID from Instagram profile page
+        """
+        self.update_status(f"{self._('reading_profile')} {username}...")
+        
+        cookies = self.stalker.get_cookies_dict()
+        if not cookies:
+            return None
+            
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36",
+            "Accept-Language": "tr-TR, en-US",
+        }
+        
+        try:
+            # Make request to get the profile page
+            url = f"https://www.instagram.com/{username}/"
+            response = requests.get(
+                url, 
+                headers=headers, 
+                cookies=cookies,
+                timeout=(10, 30)  # 10 sec connection, 30 sec read timeout
+            )
+            response.raise_for_status()
+            
+            # Method 1: Search for user ID in script tag
+            import re
+            user_id_match = re.search(r'"user_id":"(\d+)"', response.text)
+            if user_id_match:
+                return user_id_match.group(1)
+            
+            # Method 2: Extract from profile picture URL
+            profile_pic_match = re.search(r'profile_pic_url_hd":"[^"]+/(\d+)/', response.text)
+            if profile_pic_match:
+                return profile_pic_match.group(1)
+            
+            # Method 3: Find the most common numeric ID in the content
+            # This is a fallback method
+            self.update_status(f"{self._('extracting_user_id')} {username}...")
+            
+            all_ids = re.findall(r'"id":"(\d+)"', response.text)
+            if not all_ids:
+                all_ids = re.findall(r'"id":(\d+)', response.text)
+                
+            if all_ids:
+                from collections import Counter
+                id_counts = Counter(all_ids)
+                common_ids = id_counts.most_common()
+                
+                if common_ids and len(common_ids) > 0:
+                    return common_ids[0][0]  # Return the most common ID
+            
+            # If we reach here, we couldn't find the ID automatically
+            self.update_status(f"{self._('user_id_not_found')}")
+            
+            # Ask user to input ID manually through dialog
+            if is_main_thread():
+                user_id = self._ask_for_user_id(username)
+                return user_id
+            else:
+                # We're in a background thread, we need to schedule the dialog on the main thread
+                result = []
+                
+                def ask_in_main():
+                    user_id = self._ask_for_user_id(username)
+                    result.append(user_id)
+                
+                self.after(0, ask_in_main)
+                
+                # Wait for the result (this is not ideal, but necessary for threading)
+                timeout = 60  # Wait up to 60 seconds for user input
+                start_time = time.time()
+                while not result and time.time() - start_time < timeout:
+                    time.sleep(0.1)
+                
+                return result[0] if result else None
+                
+        except Exception as e:
+            self.update_status(f"{self._('error_getting_user_id')}: {e}")
+            return None
+            
+    def _ask_for_user_id(self, username):
+        """Show dialog asking user to input Instagram user ID manually"""
+        instructions = self._("user_id_instructions").format(username=username)
+        user_id = simpledialog.askstring(
+            self._("user_id_required"),
+            instructions
+        )
+        return user_id
 
 
 def main():
