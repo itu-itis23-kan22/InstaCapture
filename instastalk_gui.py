@@ -7,6 +7,7 @@ from pathlib import Path
 import json
 import webbrowser
 import re
+from datetime import datetime
 
 # Paket yükleme fonksiyonu
 def install_package(package_name):
@@ -986,7 +987,8 @@ class InstaStalkGUI(tk.Tk):
             self.update_result_text(self.highlights_result_text, f"✅ Kullanıcı ID'si bulundu: {user_id}\n")
             
             # Highlights API'sine istek gönder
-            highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_related_profiles%22%3Afalse%7D"
+            # Güncel query_hash değeri kullanılıyor
+            highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_live_status%22%3Atrue%7D"
             
             highlights_response = requests.get(highlights_url, headers=headers, cookies=self.stalker.cookies)
             
@@ -1007,17 +1009,20 @@ class InstaStalkGUI(tk.Tk):
                 # Yanıt yapısını kontrol et ve farklı formatları dene
                 highlights = None
                 
-                # Format 1: data.user.edge_highlight_reels.edges
-                if 'data' in highlights_data and highlights_data.get('data'):
-                    data = highlights_data.get('data')
-                    if 'user' in data and data.get('user'):
-                        user = data.get('user')
-                        if 'edge_highlight_reels' in user and user.get('edge_highlight_reels'):
-                            edge_highlight_reels = user.get('edge_highlight_reels')
-                            if 'edges' in edge_highlight_reels and edge_highlight_reels.get('edges'):
-                                highlights = edge_highlight_reels.get('edges')
+                # Otomatik olarak yanıt yapısını tespit etmeye çalış
+                if 'data' in highlights_data:
+                    data = highlights_data['data']
+                    
+                    # Olası yolları ara
+                    if 'user' in data and data['user']:
+                        user_data = data['user']
+                        if 'edge_highlight_reels' in user_data:
+                            edge_highlight_reels = user_data['edge_highlight_reels']
+                            if 'edges' in edge_highlight_reels:
+                                highlights = edge_highlight_reels['edges']
+                                self.update_result_text(self.highlights_result_text, "✅ Highlight verisi bulundu: data.user.edge_highlight_reels.edges yapısında\n")
                 
-                # Format 2: user.edge_highlight_reels.edges
+                # Format 2: user.edge_highlight_reels.edges - eskiden kalan eski yöntem, yine de deneyelim
                 if not highlights and 'user' in highlights_data and highlights_data.get('user'):
                     user = highlights_data.get('user')
                     if 'edge_highlight_reels' in user and user.get('edge_highlight_reels'):
@@ -1025,13 +1030,13 @@ class InstaStalkGUI(tk.Tk):
                         if 'edges' in edge_highlight_reels and edge_highlight_reels.get('edges'):
                             highlights = edge_highlight_reels.get('edges')
                 
-                # Format 3: edge_highlight_reels.edges
+                # Format 3: edge_highlight_reels.edges - eskiden kalan eski yöntem, yine de deneyelim
                 if not highlights and 'edge_highlight_reels' in highlights_data and highlights_data.get('edge_highlight_reels'):
                     edge_highlight_reels = highlights_data.get('edge_highlight_reels')
                     if 'edges' in edge_highlight_reels and edge_highlight_reels.get('edges'):
                         highlights = edge_highlight_reels.get('edges')
                 
-                # Format 4: data.edges
+                # Format 4: data.edges - eskiden kalan eski yöntem, yine de deneyelim
                 if not highlights and 'data' in highlights_data and highlights_data.get('data'):
                     data = highlights_data.get('data')
                     if 'edges' in data and data.get('edges'):
@@ -1041,7 +1046,7 @@ class InstaStalkGUI(tk.Tk):
                 if not highlights:
                     # API yanıtını detaylı incele ve rapor et
                     debug_str = f"❌ API yanıtında beklenen format bulunamadı.\nYanıt içeriği (ilk 1000 karakter):\n"
-                    debug_str += str(highlights_data)[:1000] + "...\n"
+                    debug_str += json.dumps(highlights_data)[:1000] + "...\n"
                     debug_str += "API'nin üst seviye anahtarları: " + ", ".join(highlights_data.keys()) + "\n"
                     
                     if 'data' in highlights_data:
@@ -1052,8 +1057,8 @@ class InstaStalkGUI(tk.Tk):
                     # Kullanıcıya manuel olarak devam etme seçeneği sun
                     highlights_manual = simpledialog.askstring("Öne Çıkan Hikayeleri Manuel Bul", 
                                                               f"{username} kullanıcısının öne çıkan hikayeleri otomatik olarak bulunamadı.\n\n"
-                                                              "Eğer API yanıt çıktısında 'edges' anahtarının nerede olduğunu tespit ettiyseniz,\n"
-                                                              "ilgili JSON yolunu nokta ile ayırarak girin (örn: 'data.user.items'):")
+                                                              "Eğer API yanıt çıktısında istenen veri yapısını tespit ettiyseniz,\n"
+                                                              "ilgili JSON yolunu nokta ile ayırarak girin (örn: 'data.user.edge_highlight_reels.edges'):")
                     
                     if highlights_manual:
                         try:
@@ -1061,7 +1066,11 @@ class InstaStalkGUI(tk.Tk):
                             parts = highlights_manual.strip().split('.')
                             current = highlights_data
                             for part in parts:
-                                current = current.get(part, {})
+                                if part.isdigit():
+                                    # Sayısal indeks kullanılıyorsa listeye eriş
+                                    current = current[int(part)]
+                                else:
+                                    current = current.get(part, {})
                             
                             if current and isinstance(current, list):
                                 highlights = current
@@ -1145,21 +1154,193 @@ class InstaStalkGUI(tk.Tk):
         """Arka planda bir öne çıkan hikayeyi indir."""
         try:
             title = highlight['title']
+            highlight_id = highlight['id']
             self.update_status(f"'{title}' öne çıkan hikayesi indiriliyor...")
             self.update_result_text(self.highlights_result_text, f"\n⏳ '{title}' öne çıkan hikayesi indiriliyor...\n")
             
-            # Öne çıkan hikayeyi indir
+            # Klasör oluştur
             base_dir = self.stalker.content_types["stories"] / username / "highlights"
-            success = self.stalker._download_single_highlight(username, highlight, base_dir)
+            highlight_dir = base_dir / title.replace("/", "_").replace("\\", "_")
+            highlight_dir.mkdir(exist_ok=True, parents=True)
             
-            if success:
-                self.update_status(f"'{title}' öne çıkan hikayesi başarıyla indirildi")
-            else:
+            # Highlight içeriğini al
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            # Güncel API query_hash kullan
+            highlight_url = f"https://www.instagram.com/graphql/query/?query_hash=45246d3fe16ccc6577e0bd297a5db1ab&variables=%7B%22reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22tag_names%22%3A%5B%5D%2C%22location_ids%22%3A%5B%5D%2C%22highlight_reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22precomposed_overlay%22%3Afalse%7D"
+            
+            highlight_response = requests.get(highlight_url, headers=headers, cookies=self.stalker.cookies)
+            
+            if highlight_response.status_code != 200:
+                self.update_result_text(self.highlights_result_text, f"❌ Highlight içeriği alınamadı. HTTP Kodu: {highlight_response.status_code}\n")
+                return
+            
+            # Highlight verisini ayrıştır
+            try:
+                highlight_data = highlight_response.json()
+                if not highlight_data:
+                    self.update_result_text(self.highlights_result_text, f"❌ Highlight verisi alınamadı veya boş.\n")
+                    return
+                
+                self.update_result_text(self.highlights_result_text, f"ℹ️ Highlight medya verileri inceleniyor...\n")
+                
+                # Medya içeriğine erişim için farklı JSON yapılarını dene
+                media_items = []
+                
+                # En yaygın format: data.reels_media[0].items
+                if 'data' in highlight_data and 'reels_media' in highlight_data['data']:
+                    reels_media = highlight_data['data']['reels_media']
+                    if reels_media and len(reels_media) > 0 and 'items' in reels_media[0]:
+                        media_items = reels_media[0]['items']
+                        self.update_result_text(self.highlights_result_text, f"✅ Highlight medya içeriği bulundu: {len(media_items)} öğe\n")
+                
+                # Alternatif path: data.reels.{highlight_id}.items
+                if not media_items and 'data' in highlight_data and 'reels' in highlight_data['data']:
+                    reels = highlight_data['data']['reels']
+                    if highlight_id in reels and 'items' in reels[highlight_id]:
+                        media_items = reels[highlight_id]['items']
+                        self.update_result_text(self.highlights_result_text, f"✅ Medya içeriği alternatif yoldan bulundu: {len(media_items)} öğe\n")
+                
+                # Medya bulunamadıysa JSON yapısını incele ve manuel giriş iste
+                if not media_items:
+                    self.update_result_text(self.highlights_result_text, f"❌ Medya içeriği bulunamadı. API yanıt yapısı inceleniyor...\n")
+                    debug_str = f"API yanıt verileri (ilk 500 karakter):\n{json.dumps(highlight_data)[:500]}...\n"
+                    self.update_result_text(self.highlights_result_text, debug_str)
+                    
+                    # Kullanıcıdan manuel JSON yolu al
+                    manual_path = simpledialog.askstring("Medya İçeriğini Manuel Bul", 
+                                                       f"'{title}' öne çıkan hikayesinin medya içeriği otomatik bulunamadı.\n\n"
+                                                       "API yanıt çıktısında medya öğelerinin listesini içeren JSON yolunu\n"
+                                                       "nokta ile ayırarak girin (örn: 'data.reels_media.0.items'):")
+                    
+                    if not manual_path:
+                        self.update_result_text(self.highlights_result_text, "❌ İşlem iptal edildi.\n")
+                        return
+                    
+                    try:
+                        # Nokta notasyonu ile verilen yolu takip et
+                        parts = manual_path.split('.')
+                        current = highlight_data
+                        
+                        for part in parts:
+                            if part.isdigit():
+                                current = current[int(part)]
+                            else:
+                                current = current.get(part, {})
+                        
+                        if isinstance(current, list):
+                            media_items = current
+                            self.update_result_text(self.highlights_result_text, f"✅ Medya içeriği manuel yoldan bulundu: {len(media_items)} öğe\n")
+                        else:
+                            self.update_result_text(self.highlights_result_text, "❌ Belirtilen yolda liste tipi medya verisi bulunamadı.\n")
+                            return
+                    except Exception as e:
+                        self.update_result_text(self.highlights_result_text, f"❌ Manuel yol işlenirken hata: {str(e)}\n")
+                        return
+                
+                if not media_items:
+                    self.update_result_text(self.highlights_result_text, f"❌ '{title}' için indirilebilir medya bulunamadı.\n")
+                    return
+                
+                # Highlight medyalarını indir
+                downloaded_count = 0
+                
+                for i, item in enumerate(media_items):
+                    # Medya ID'si ve zaman damgası
+                    media_id = item.get('id', f"unknown_{i}")
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    
+                    # Video mu resim mi?
+                    is_video = item.get('is_video', False)
+                    
+                    if is_video:
+                        # Video URL'sini bul
+                        video_url = None
+                        
+                        # Ana video URL'si
+                        if 'video_versions' in item and len(item['video_versions']) > 0:
+                            video_url = item['video_versions'][0].get('url')
+                        # Alternatif video yapısı
+                        elif 'video_resources' in item and len(item['video_resources']) > 0:
+                            video_url = item['video_resources'][0].get('src')
+                        
+                        if not video_url:
+                            self.update_result_text(self.highlights_result_text, f"⚠️ Video URL'si bulunamadı: {media_id}\n")
+                            continue
+                        
+                        # Dosya adı ve yolu
+                        video_filename = f"{username}_highlight_{title}_{media_id}_{timestamp}.mp4"
+                        video_path = highlight_dir / video_filename
+                        
+                        # Video indir
+                        self.update_result_text(self.highlights_result_text, f"⏳ Video indiriliyor [{i+1}/{len(media_items)}]: {media_id}\n")
+                        try:
+                            video_response = requests.get(video_url, stream=True)
+                            with open(video_path, 'wb') as f:
+                                for chunk in video_response.iter_content(chunk_size=8192):
+                                    if chunk:
+                                        f.write(chunk)
+                            downloaded_count += 1
+                            self.update_result_text(self.highlights_result_text, f"✅ Video indirildi: {video_filename}\n")
+                        except Exception as e:
+                            self.update_result_text(self.highlights_result_text, f"❌ Video indirme hatası: {str(e)}\n")
+                    else:
+                        # Resim URL'sini bul
+                        image_url = None
+                        
+                        # Ana resim URL'si
+                        if 'image_versions2' in item and 'candidates' in item['image_versions2']:
+                            candidates = item['image_versions2']['candidates']
+                            if candidates and len(candidates) > 0:
+                                image_url = candidates[0].get('url')
+                        # Alternatif resim yapısı
+                        elif 'display_resources' in item and len(item['display_resources']) > 0:
+                            # En yüksek çözünürlüklü resmi al
+                            sorted_resources = sorted(item['display_resources'], 
+                                                    key=lambda x: x.get('config_width', 0), 
+                                                    reverse=True)
+                            image_url = sorted_resources[0].get('src')
+                        
+                        if not image_url:
+                            self.update_result_text(self.highlights_result_text, f"⚠️ Resim URL'si bulunamadı: {media_id}\n")
+                            continue
+                        
+                        # Dosya adı ve yolu
+                        image_filename = f"{username}_highlight_{title}_{media_id}_{timestamp}.jpg"
+                        image_path = highlight_dir / image_filename
+                        
+                        # Resim indir
+                        self.update_result_text(self.highlights_result_text, f"⏳ Resim indiriliyor [{i+1}/{len(media_items)}]: {media_id}\n")
+                        try:
+                            image_response = requests.get(image_url)
+                            with open(image_path, 'wb') as f:
+                                f.write(image_response.content)
+                            downloaded_count += 1
+                            self.update_result_text(self.highlights_result_text, f"✅ Resim indirildi: {image_filename}\n")
+                        except Exception as e:
+                            self.update_result_text(self.highlights_result_text, f"❌ Resim indirme hatası: {str(e)}\n")
+                
+                if downloaded_count > 0:
+                    self.update_result_text(self.highlights_result_text, f"\n✅ '{title}' öne çıkan hikayesi başarıyla indirildi ({downloaded_count}/{len(media_items)} medya)\n")
+                    self.update_result_text(self.highlights_result_text, f"📂 İndirilen medyalar: {highlight_dir}\n")
+                    self.update_status(f"'{title}' öne çıkan hikayesi başarıyla indirildi")
+                    return True
+                else:
+                    self.update_result_text(self.highlights_result_text, f"❌ '{title}' öne çıkan hikayesinden hiç bir medya indirilemedi.\n")
+                    self.update_status(f"'{title}' öne çıkan hikayesi indirilirken bir hata oluştu")
+                    return False
+                    
+            except Exception as e:
+                self.update_result_text(self.highlights_result_text, f"❌ Highlight verisi ayrıştırılırken hata: {str(e)}\n")
                 self.update_status(f"'{title}' öne çıkan hikayesi indirilirken bir hata oluştu")
+                return False
                 
         except Exception as e:
             self.update_result_text(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
             messagebox.showerror("Hata", f"Öne çıkan hikaye indirilirken bir hata oluştu: {str(e)}")
+            return False
     
     def _download_all_highlights_thread(self, username, highlights):
         """Arka planda tüm öne çıkan hikayeleri indir."""
@@ -1178,7 +1359,7 @@ class InstaStalkGUI(tk.Tk):
                 self.update_result_text(self.highlights_result_text, f"⏳ [{i}/{len(highlights)}] '{title}' öne çıkan hikayesi indiriliyor...\n")
                 
                 try:
-                    success = self.stalker._download_single_highlight(username, highlight, base_dir)
+                    success = self._download_highlight_thread(username, highlight)
                     if success:
                         success_count += 1
                     else:
