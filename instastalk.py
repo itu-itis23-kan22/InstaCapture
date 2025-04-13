@@ -10,6 +10,10 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 import sys
+import base64
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 try:
     from instacapture import InstaStory, InstaPost
@@ -92,9 +96,9 @@ TRANSLATIONS = {
         "menu_lang": "8. Dil Değiştir (Change Language)",
         "menu_exit": "9. Çıkış",
         "menu_choice": "\nSeçiminiz (1-9): ",
-        "story_username_prompt": "Hikayeleri indirilecek kullanıcı adı: ",
+        "username_prompt": "Hikayeleri indirilecek kullanıcı adı: ",
         "post_url_prompt": "Gönderi veya reel URL'si: ",
-        "profile_username_prompt": "Profil resmi indirilecek kullanıcı adı: ",
+        "username_prompt": "Profil resmi indirilecek kullanıcı adı: ",
         "invalid_choice": "Geçersiz seçim!",
         "exit_message": "Çıkılıyor...",
         "interrupt_message": "\n\nİşlem kullanıcı tarafından durduruldu. Çıkılıyor...",
@@ -114,6 +118,13 @@ TRANSLATIONS = {
         "batch_download_start": "\n⏳ {0} kullanıcısı için toplu indirme başlatılıyor...",
         "batch_download_complete": "✅ Toplu indirme tamamlandı!",
         "batch_download_error": "❌ Toplu indirme sırasında bir hata oluştu: {0}",
+        "menu_9": "9. Çerez Şifrelemeyi Aç/Kapat",
+        "encryption_enabled": "✅ Çerez şifreleme aktif edildi. Çerezleriniz artık şifreli olarak saklanacak.",
+        "encryption_disabled": "❌ Çerez şifreleme devre dışı bırakıldı. Çerezleriniz şifrelenmeden saklanacak.",
+        "enabling_encryption": "⏳ Çerez şifreleme etkinleştiriliyor...",
+        "disabling_encryption": "⏳ Çerez şifreleme devre dışı bırakılıyor...",
+        "encryption_error": "🔒 Şifreleme hatası: {0}",
+        "encryption_info": "🔒 Çerez şifreleme durumu: {0}",
     },
     "en": {
         "app_title": "📲 InstaStalker - Instagram Content Downloader Tool",
@@ -185,9 +196,9 @@ TRANSLATIONS = {
         "menu_lang": "8. Change Language (Dil Değiştir)",
         "menu_exit": "9. Exit",
         "menu_choice": "\nYour choice (1-9): ",
-        "story_username_prompt": "Username for stories to download: ",
+        "username_prompt": "Username for stories to download: ",
         "post_url_prompt": "Post or reel URL: ",
-        "profile_username_prompt": "Username for profile picture to download: ",
+        "username_prompt": "Username for profile picture to download: ",
         "invalid_choice": "Invalid choice!",
         "exit_message": "Exiting...",
         "interrupt_message": "\n\nOperation interrupted by user. Exiting...",
@@ -207,6 +218,13 @@ TRANSLATIONS = {
         "batch_download_start": "\n⏳ Starting batch download for user {0}...",
         "batch_download_complete": "✅ Batch download completed!",
         "batch_download_error": "❌ Error during batch download: {0}",
+        "menu_9": "9. Toggle Cookie Encryption",
+        "encryption_enabled": "✅ Cookie encryption enabled. Your cookies will now be stored encrypted.",
+        "encryption_disabled": "❌ Cookie encryption disabled. Your cookies will be stored unencrypted.",
+        "enabling_encryption": "⏳ Enabling cookie encryption...",
+        "disabling_encryption": "⏳ Disabling cookie encryption...",
+        "encryption_error": "🔒 Encryption error: {0}",
+        "encryption_info": "🔒 Cookie encryption status: {0}",
     }
 }
 
@@ -220,10 +238,12 @@ class InstaStalker:
         self.config_dir.mkdir(exist_ok=True)
         self.cookies_file = self.config_dir / "cookies.json"
         self.settings_file = self.config_dir / "settings.json"
+        self.salt_file = self.config_dir / ".salt"
         
         # Varsayılan ayarlar
         self.settings = {
-            "language": "tr"
+            "language": "tr",
+            "encryption_enabled": False
         }
         
         # Ayarları yükle
@@ -295,15 +315,94 @@ class InstaStalker:
             self.save_settings()
             print(self._("lang_changed", "English"))
     
+    def generate_salt(self):
+        """Şifreleme için tuz değeri oluşturur veya var olanı yükler."""
+        if self.salt_file.exists():
+            with open(self.salt_file, 'rb') as f:
+                return f.read()
+        else:
+            # Yeni tuz oluştur
+            salt = os.urandom(16)
+            with open(self.salt_file, 'wb') as f:
+                f.write(salt)
+            os.chmod(self.salt_file, 0o600)  # Sadece kullanıcı erişebilsin
+            return salt
+    
+    def get_encryption_key(self, password=None):
+        """Şifreleme anahtarı oluşturur."""
+        if password is None:
+            # Kullanıcı adını ve makine adını kullanarak bir şifre oluştur
+            # Bu sadece hafif bir güvenlik sağlar, şifreyi gizlemek için değil
+            user = getpass.getuser()
+            hostname = os.uname().nodename if hasattr(os, 'uname') else 'unknown'
+            password = f"{user}@{hostname}"
+        
+        salt = self.generate_salt()
+        
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+        )
+        
+        key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+        return key
+    
+    def encrypt_data(self, data, password=None):
+        """JSON veriyi şifreler ve şifrelenmiş metin döndürür."""
+        if not data:
+            return None
+            
+        key = self.get_encryption_key(password)
+        fernet = Fernet(key)
+        
+        # JSON verisini metin haline getir
+        json_text = json.dumps(data).encode('utf-8')
+        
+        # Şifrele
+        encrypted_data = fernet.encrypt(json_text)
+        
+        return encrypted_data
+    
+    def decrypt_data(self, encrypted_data, password=None):
+        """Şifrelenmiş metni çözer ve JSON olarak döndürür."""
+        if not encrypted_data:
+            return {}
+            
+        try:
+            key = self.get_encryption_key(password)
+            fernet = Fernet(key)
+            
+            # Şifreyi çöz
+            decrypted_data = fernet.decrypt(encrypted_data)
+            
+            # JSON'a dönüştür
+            return json.loads(decrypted_data.decode('utf-8'))
+        except Exception as e:
+            print(self._("encryption_error", str(e)))
+            return {}
+    
     def load_cookies(self):
         """Kaydedilmiş çerezleri yükle."""
         if self.cookies_file.exists():
             try:
-                with open(self.cookies_file, 'r') as f:
-                    self.cookies = json.load(f)
-                cookie_keys = ', '.join(self.cookies.keys())
-                print(self._("cookies_loaded", cookie_keys))
-                return True
+                if self.settings.get("encryption_enabled", False):
+                    # Şifrelenmiş çerezleri yükle
+                    with open(self.cookies_file, 'rb') as f:
+                        encrypted_data = f.read()
+                    
+                    self.cookies = self.decrypt_data(encrypted_data)
+                else:
+                    # Normal JSON formatında yükle
+                    with open(self.cookies_file, 'r') as f:
+                        self.cookies = json.load(f)
+                
+                if self.cookies:
+                    cookie_keys = ', '.join(self.cookies.keys())
+                    print(self._("cookies_loaded", cookie_keys))
+                    return True
+                
             except Exception as e:
                 print(self._("cookies_not_loaded", str(e)))
         return False
@@ -311,15 +410,79 @@ class InstaStalker:
     def save_cookies(self):
         """Çerezleri kaydet."""
         try:
-            with open(self.cookies_file, 'w') as f:
-                json.dump(self.cookies, f)
+            if self.settings.get("encryption_enabled", False):
+                # Çerezleri şifrele ve kaydet
+                encrypted_data = self.encrypt_data(self.cookies)
+                with open(self.cookies_file, 'wb') as f:
+                    f.write(encrypted_data)
+            else:
+                # Normal JSON formatında kaydet
+                with open(self.cookies_file, 'w') as f:
+                    json.dump(self.cookies, f)
+            
+            # Dosya izinlerini ayarla
             os.chmod(self.cookies_file, 0o600)  # Sadece kullanıcının erişebilmesi için izinleri ayarla
-            print(self._("cookies_saved", str(self.cookies_file)))
+            
+            encryption_status = "🔒 şifreli" if self.settings.get("encryption_enabled", False) else "şifrelenmemiş"
+            print(self._("cookies_saved", f"{str(self.cookies_file)} ({encryption_status})"))
             return True
         except Exception as e:
             print(self._("cookies_not_saved", str(e)))
         return False
-    
+        
+    def toggle_encryption(self):
+        """Çerez şifrelemeyi aç/kapat."""
+        current_status = self.settings.get("encryption_enabled", False)
+        new_status = not current_status
+        
+        # Şifrelemeyi etkinleştiriyorsak ve çerezler varsa, çerezleri yükle, şifrele ve kaydet
+        if new_status and self.cookies:
+            print(self._("enabling_encryption"))
+            self.settings["encryption_enabled"] = new_status
+            self.save_settings()  # Önce yeni durumu kaydet
+            self.save_cookies()   # Çerezleri şifreli olarak kaydet
+            print(self._("encryption_enabled"))
+        
+        # Şifrelemeyi devre dışı bırakıyorsak ve çerezler varsa, çerezleri yükle ve şifresiz kaydet
+        elif not new_status and self.cookies_file.exists():
+            print(self._("disabling_encryption"))
+            # Şifrelenmiş çerezleri yükle (şu anda şifreli olmalı)
+            old_encryption_status = self.settings.get("encryption_enabled", False)
+            
+            # Eğer şifreleme açıksa, çerezleri yüklemeden önce şifreleme ayarını değiştirme
+            if old_encryption_status:
+                loaded_cookies = {}
+                try:
+                    with open(self.cookies_file, 'rb') as f:
+                        encrypted_data = f.read()
+                    loaded_cookies = self.decrypt_data(encrypted_data)
+                except Exception as e:
+                    print(self._("cookies_not_loaded", str(e)))
+                
+                # Şifrelemeyi kapat ve çerezleri güncelle
+                self.settings["encryption_enabled"] = new_status
+                self.save_settings()
+                
+                # Çerezleri tekrar ayarla ve şifresiz kaydet
+                self.cookies = loaded_cookies
+                self.save_cookies()
+            else:
+                # Zaten şifreleme kapalıysa, sadece ayarı güncelle
+                self.settings["encryption_enabled"] = new_status
+                self.save_settings()
+            
+            print(self._("encryption_disabled"))
+        
+        # Çerez yoksa, sadece ayarı değiştir
+        else:
+            self.settings["encryption_enabled"] = new_status
+            self.save_settings()
+            
+            if new_status:
+                print(self._("encryption_enabled"))
+            else:
+                print(self._("encryption_disabled"))
+                
     def set_cookies_from_string(self, cookie_str):
         """Cookie string'inden çerezleri ayarla."""
         # Cookie: header formatından temizle
@@ -563,7 +726,7 @@ class InstaStalker:
             print(self._("post_error", str(e)))
             return False
     
-    def download_profile_picture(self, username):
+    def download_profile_pic(self, username):
         """Belirtilen kullanıcının profil resmini doğrudan indir."""
         try:
             # Kullanıcı klasörünü oluştur
@@ -617,7 +780,7 @@ class InstaStalker:
             print(self._("profile_error", str(e)))
             return False
     
-    def list_downloads(self):
+    def list_downloaded_files(self):
         """İndirilen tüm dosyaları listele."""
         print(self._("downloads_title"))
         total_found = 0
@@ -849,152 +1012,58 @@ class InstaFeed:
 
 
 def main():
-    """Ana fonksiyon - komut satırı argümanlarını işle."""
     try:
-        # GUI başlatma seçeneğini ekle
-        if "--gui" in sys.argv:
-            # GUI modunu başlat
-            try:
-                from instastalk_gui import InstaStalkGUI
-                app = InstaStalkGUI()
-                app.mainloop()
-                return
-            except ImportError as e:
-                print(f"GUI başlatılamadı: {e}")
-                print("GUI için gerekli modüller eksik olabilir. 'pip install pillow' komutunu çalıştırın.")
-                sys.exit(1)
-                
-        # InstaStalker nesnesi oluştur
         stalker = InstaStalker()
         
-        # Komut satırı argümanlarını tanımla
-        parser = argparse.ArgumentParser(description="Instagram hikayelerini ve gönderilerini indirmek için kullanıcı dostu bir araç")
-        parser.add_argument("--gui", action="store_true", help="Grafik arayüzünü başlat")
-        
-        # Alt komutları tanımla
-        subparsers = parser.add_subparsers(dest="command", help="Komut")
-        
-        # story komutu
-        story_parser = subparsers.add_parser("story", help="Kullanıcının hikayelerini indir")
-        story_parser.add_argument("username", help="Hikayeleri indirilecek kullanıcı adı")
-        
-        # post komutu
-        post_parser = subparsers.add_parser("post", help="Gönderi veya reeli indir")
-        post_parser.add_argument("url", help="Gönderi veya reel URL'si (veya kodu)")
-        
-        # profile komutu
-        profile_parser = subparsers.add_parser("profile", help="Kullanıcının profil resmini indir")
-        profile_parser.add_argument("username", help="Profil resmi indirilecek kullanıcı adı")
-        
-        # batch komutu
-        batch_parser = subparsers.add_parser("batch", help="Toplu indirme yap")
-        batch_parser.add_argument("username", help="Toplu indirme yapılacak kullanıcı adı")
-        batch_parser.add_argument("--type", choices=["story", "post", "both"], default="both", 
-                                help="İndirme türü (story, post, both)")
-        
-        # cookie komutu
-        cookie_parser = subparsers.add_parser("cookie", help="Çerezleri ayarla ve kaydet")
-        
-        # list komutu
-        list_parser = subparsers.add_parser("list", help="İndirilen dosyaları listele")
-        
-        # clean komutu
-        clean_parser = subparsers.add_parser("clean", help="Tüm indirilen dosyaları temizle")
-        
-        # lang komutu
-        lang_parser = subparsers.add_parser("lang", help="Dil değiştir")
-        
-        # args'ı parse et
-        args = parser.parse_args()
-        
-        # Komutu yürüt
-        if args.command == "story":
-            stalker.download_story(args.username)
-        elif args.command == "post":
-            stalker.download_post(args.url)
-        elif args.command == "profile":
-            stalker.download_profile_picture(args.username)
-        elif args.command == "batch":
-            if args.type == "story":
-                choice = "1"
-            elif args.type == "post":
-                choice = "2"
-            else:
-                choice = "3"
-                
-            # Toplu indirme başlat
-            print(stalker._("batch_download_start", args.username))
+        while True:
+            print("\n" + "="*50)
+            print(stalker._("app_title"))
+            print("="*50)
             
-            success = True
-            
-            # Hikayeleri indir
-            if choice in ["1", "3"]:
-                success = stalker.download_story(args.username) and success
-            
-            # Son gönderileri indir
-            if choice in ["2", "3"]:
-                success = stalker.download_recent_posts(args.username) and success
-            
-            if success:
-                print(stalker._("batch_download_complete"))
-        elif args.command == "cookie":
-            stalker.get_interactive_cookies()
-        elif args.command == "list":
-            stalker.list_downloads()
-        elif args.command == "lang":
-            stalker.change_language()
-        elif args.command == "clean":
-            confirm = input(stalker._("clean_confirm"))
-            if confirm.lower() == stalker._("yes_short"):
-                shutil.rmtree(stalker.base_dir, ignore_errors=True)
-                stalker.base_dir.mkdir(exist_ok=True)
-                for dir_path in stalker.content_types.values():
-                    dir_path.mkdir(exist_ok=True)
-                print(stalker._("clean_success"))
-            else:
-                print(stalker._("clean_cancel"))
-        elif args.gui:
-            # GUI modunu başlat - bu kod yolu normalde çalışmaz, yukarıdaki kontrol işleyecektir
-            try:
-                from instastalk_gui import InstaStalkGUI
-                app = InstaStalkGUI()
-                app.mainloop()
-            except ImportError as e:
-                print(f"GUI başlatılamadı: {e}")
-                print("GUI için gerekli modüller eksik olabilir. 'pip install pillow' komutunu çalıştırın.")
-        else:
-            # Eğer komut belirtilmemişse interaktif menü göster
-            print(stalker._("app_name"))
-            print(stalker._("menu_download_story"))
-            print(stalker._("menu_download_post"))
-            print(stalker._("menu_download_profile"))
-            print(stalker._("menu_batch_download"))
-            print(stalker._("menu_set_cookies"))
-            print(stalker._("menu_list_downloads"))
-            print(stalker._("menu_clean"))
-            print(stalker._("menu_lang"))
-            print(stalker._("menu_exit"))
+            print("\n" + stalker._("main_menu"))
+            print(stalker._("menu_1"))
+            print(stalker._("menu_2"))
+            print(stalker._("menu_3"))
+            print(stalker._("menu_4"))
+            print(stalker._("menu_5"))
+            print(stalker._("menu_6"))
+            print(stalker._("menu_7"))
+            print(stalker._("menu_8"))  # Dil değiştirme
+            print(stalker._("menu_9"))  # Şifreleme aç/kapat
+            print(stalker._("menu_0"))
             
             choice = input(stalker._("menu_choice"))
             
             if choice == "1":
-                username = input(stalker._("story_username_prompt"))
+                # Hikaye indirme
+                username = input(stalker._("username_prompt"))
                 stalker.download_story(username)
+            
             elif choice == "2":
-                url = input(stalker._("post_url_prompt"))
-                stalker.download_post(url)
+                # Gönderi indirme
+                post_url = input(stalker._("post_url_prompt"))
+                stalker.download_post(post_url)
+            
             elif choice == "3":
-                username = input(stalker._("profile_username_prompt"))
-                stalker.download_profile_picture(username)
+                # Profil resmi indirme
+                username = input(stalker._("username_prompt"))
+                stalker.download_profile_pic(username)
+            
             elif choice == "4":
-                username = input(stalker._("batch_username_prompt"))
-                if username:
-                    stalker.batch_download(username)
-            elif choice == "5":
+                # Çerezleri ayarla
                 stalker.get_interactive_cookies()
+            
+            elif choice == "5":
+                # İndirilen dosyaları listele
+                stalker.list_downloaded_files()
+            
             elif choice == "6":
-                stalker.list_downloads()
+                # Toplu indirme
+                batch_username = input(stalker._("batch_username_prompt"))
+                stalker.batch_download(batch_username)
+            
             elif choice == "7":
+                # İndirilen dosyaları temizle
                 confirm = input(stalker._("clean_confirm"))
                 if confirm.lower() == stalker._("yes_short"):
                     shutil.rmtree(stalker.base_dir, ignore_errors=True)
@@ -1004,10 +1073,20 @@ def main():
                     print(stalker._("clean_success"))
                 else:
                     print(stalker._("clean_cancel"))
+            
             elif choice == "8":
+                # Dil değiştir
                 stalker.change_language()
+                
             elif choice == "9":
+                # Şifreleme aç/kapat
+                stalker.toggle_encryption()
+            
+            elif choice == "0":
+                # Çıkış
                 print(stalker._("exit_message"))
+                break
+                
             else:
                 print(stalker._("invalid_choice"))
                 
@@ -1020,7 +1099,6 @@ def main():
 
 if __name__ == "__main__":
     try:
-        # InstaStalker nesnesi oluştur
         stalker = InstaStalker()
         print(stalker._("app_title"))
         main()
