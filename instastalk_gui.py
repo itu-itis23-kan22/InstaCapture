@@ -30,7 +30,7 @@ def install_package(package_name):
 # Gerekli paketleri yüklemeyi dene
 try:
     import tkinter as tk
-    from tkinter import ttk, messagebox, filedialog, scrolledtext
+    from tkinter import ttk, messagebox, filedialog, scrolledtext, simpledialog
 except ImportError as e:
     print("Tkinter paketi bulunamadı. Bu Python kurulumunuzla gelmelidir.")
     print("Lütfen Python'u Tkinter desteğiyle yeniden kurun.")
@@ -907,7 +907,9 @@ class InstaStalkGUI(tk.Tk):
             
             # Pattern 2: JSON formatında olabilir: "id":"12345678"
             if not user_id:
-                user_id_match = re.search(r'"id":"(\d+)"[^}]*?"username":"{}"'.format(username), response.text)
+                # Süslü parantezleri formatlamada kullanırken escape etmek için ikiye katlıyoruz
+                pattern = r'"id":"(\d+)"[^}]*?"username":"' + re.escape(username) + r'"'
+                user_id_match = re.search(pattern, response.text)
                 if user_id_match:
                     user_id = user_id_match.group(1)
             
@@ -960,8 +962,27 @@ class InstaStalkGUI(tk.Tk):
             if not user_id:
                 self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının ID'si bulunamadı.\n")
                 self.update_result_text(self.highlights_result_text, "🔍 Instagram'ın yaptığı güncellemeler nedeniyle kullanıcı ID'si çıkarılamıyor.\n")
-                self.update_result_text(self.highlights_result_text, "💡 Tarayıcınızda Web Geliştirici Araçlarını açıp, Network sekmesinde 'graphql' isminde bir istek bulabilir ve sorgu parametrelerinden user_id'yi manuel olarak bulabilirsiniz.\n")
-                return
+                
+                # Kullanıcıdan manual ID girme seçeneği sun
+                self.update_result_text(self.highlights_result_text, "💡 Kullanıcı ID'sini manuel olarak girebilirsiniz.\n")
+                
+                # Manuel ID girmek için dialog oluştur
+                manual_id = simpledialog.askstring("Kullanıcı ID'sini Girin", 
+                                                 f"{username} kullanıcısının ID'sini manuel olarak girin.\n\n"
+                                                 "ID'yi bulmak için:\n"
+                                                 "1. Tarayıcıda Instagram'a gidin\n"
+                                                 "2. Web Geliştirici Araçlarını açın (F12)\n"
+                                                 "3. Network sekmesine tıklayın\n"
+                                                 "4. Sayfayı yenileyin\n"
+                                                 "5. 'graphql' içeren bir isteği bulun\n"
+                                                 "6. Sorgu parametrelerinde 'user_id' değerini arayın")
+                
+                if manual_id and manual_id.strip() and manual_id.isdigit():
+                    user_id = manual_id.strip()
+                    self.update_result_text(self.highlights_result_text, f"✅ Manuel olarak girilen ID kullanılıyor: {user_id}\n")
+                else:
+                    self.update_result_text(self.highlights_result_text, "❌ Geçerli bir kullanıcı ID'si girilmedi. İşlem iptal edildi.\n")
+                    return
             
             self.update_result_text(self.highlights_result_text, f"✅ Kullanıcı ID'si bulundu: {user_id}\n")
             

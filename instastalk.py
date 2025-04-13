@@ -981,7 +981,9 @@ class InstaStalker:
             
             # Pattern 2: JSON formatında olabilir: "id":"12345678"
             if not user_id:
-                user_id_match = re.search(r'"id":"(\d+)"[^}]*?"username":"{}"'.format(username), response.text)
+                # Süslü parantezleri formatlamada kullanırken escape etmek için ikiye katlıyoruz
+                pattern = r'"id":"(\d+)"[^}]*?"username":"' + re.escape(username) + r'"'
+                user_id_match = re.search(pattern, response.text)
                 if user_id_match:
                     user_id = user_id_match.group(1)
             
@@ -1034,9 +1036,25 @@ class InstaStalker:
             if not user_id:
                 print(self._("no_highlights_found", username))
                 print("🔍 Instagram'ın yaptığı güncellemeler nedeniyle kullanıcı ID'si çıkarılamıyor.")
-                print("💡 Tarayıcınızda Web Geliştirici Araçlarını açıp, Network sekmesinde 'graphql' isminde bir istek bulabilir ve sorgu parametrelerinden user_id'yi manuel olarak bulabilirsiniz.")
-                return False
-            
+                print("💡 Kullanıcı ID'sini manuel olarak girebilirsiniz.")
+                print("\nID'yi bulmak için:")
+                print("1. Tarayıcıda Instagram'a gidin")
+                print("2. Web Geliştirici Araçlarını açın (F12)")
+                print("3. Network sekmesine tıklayın")
+                print("4. Sayfayı yenileyin")
+                print("5. 'graphql' içeren bir isteği bulun")
+                print("6. Sorgu parametrelerinde 'user_id' değerini arayın")
+                
+                # Kullanıcıdan ID iste
+                manual_id = input("\nKullanıcı ID'sini girin (0: İptal): ")
+                
+                if manual_id and manual_id.strip() and manual_id.isdigit() and manual_id != "0":
+                    user_id = manual_id.strip()
+                    print(f"✅ Manuel olarak girilen ID kullanılıyor: {user_id}")
+                else:
+                    print("❌ Geçerli bir kullanıcı ID'si girilmedi veya işlem iptal edildi.")
+                    return False
+                    
             # Highlights API'sine istek gönder
             highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_related_profiles%22%3Afalse%7D"
             
