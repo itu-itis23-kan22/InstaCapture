@@ -1071,19 +1071,78 @@ class InstaStalker:
                     print(f"❌ API yanıtında veri bulunamadı.")
                     return False
                 
-                data = highlight_data.get('data')
-                if not data:
-                    print(f"❌ API yanıtında 'data' alanı bulunamadı.")
-                    return False
-                    
-                reels_media = data.get('reels_media')
-                if not reels_media:
-                    print(f"❌ API yanıtında 'reels_media' alanı bulunamadı.")
-                    return False
+                print("ℹ️ Highlight API yanıtı inceleniyor...")
                 
-                reels = reels_media
+                # Yanıt yapısını kontrol et ve farklı formatları dene
+                reels = None
+                
+                # Format 1: data.reels_media
+                if 'data' in highlight_data and highlight_data.get('data'):
+                    data = highlight_data.get('data')
+                    if 'reels_media' in data and data.get('reels_media'):
+                        reels = data.get('reels_media')
+                
+                # Format 2: reels_media
+                if not reels and 'reels_media' in highlight_data and highlight_data.get('reels_media'):
+                    reels = highlight_data.get('reels_media')
+                
+                # Format 3: items doğrudan API yanıtında
+                if not reels and 'items' in highlight_data and isinstance(highlight_data.get('items'), list):
+                    # items doğrudan varsa, bunu bir wrapper dictionary içine koyalım
+                    reels = [{'items': highlight_data.get('items')}]
+                
+                # Format 4: data.items
+                if not reels and 'data' in highlight_data and 'items' in highlight_data.get('data', {}) and isinstance(highlight_data.get('data', {}).get('items'), list):
+                    # items data içindeyse, bunu bir wrapper dictionary içine koyalım
+                    reels = [{'items': highlight_data.get('data', {}).get('items')}]
+                
+                # Hiçbir format bulunamadıysa reels doğrudan items listesini ara
+                if not reels:
+                    # API yanıtının anahtar yapısını göster
+                    print("❌ API yanıtında beklenen format bulunamadı.")
+                    print(f"API'nin üst seviye anahtarları: {', '.join(highlight_data.keys())}")
+                    
+                    if 'data' in highlight_data:
+                        print(f"'data' anahtarının içindeki anahtarlar: {', '.join(highlight_data['data'].keys())}")
+                    
+                    # Kullanıcıdan manuel olarak devam etme seçeneği sun
+                    print("\nEğer API yanıt çıktısında 'items' anahtarının nerede olduğunu tespit ettiyseniz,")
+                    print("ilgili JSON yolunu nokta ile ayırarak girin (örn: 'data.reels_media.0')")
+                    print("Veya çıkmak için '0' girin:")
+                    
+                    items_path = input("> ").strip()
+                    
+                    if items_path and items_path != "0":
+                        try:
+                            # Nokta notasyonu ile verilen yolu takip et
+                            parts = items_path.strip().split('.')
+                            current = highlight_data
+                            for part in parts:
+                                if part.isdigit():  # Liste indeksi
+                                    current = current[int(part)]
+                                else:
+                                    current = current.get(part, {})
+                            
+                            if current and isinstance(current, dict) and 'items' in current:
+                                # items bulundu
+                                reels = [current]
+                                print("✅ Manuel olarak belirtilen yoldan hikaye medyaları bulundu.")
+                            elif current and isinstance(current, list):
+                                # Doğrudan items listesi bulundu
+                                reels = [{'items': current}]
+                                print("✅ Manuel olarak belirtilen yoldan hikaye medyaları bulundu.")
+                            else:
+                                print("❌ Belirtilen yoldan 'items' listesi bulunamadı.")
+                                return False
+                        except Exception as e:
+                            print(f"❌ Manuel yol işlenirken hata: {str(e)}")
+                            return False
+                    else:
+                        print(self._("no_highlights_found", username))
+                        return False
             except Exception as e:
                 print(f"❌ Highlight verisi ayrıştırılamadı: {str(e)}")
+                print(f"Response status: {highlights_response.status_code}")
                 return False
             
             if not reels:
@@ -1174,19 +1233,78 @@ class InstaStalker:
                     print(f"❌ API yanıtında veri bulunamadı.")
                     return False
                 
-                data = highlight_data.get('data')
-                if not data:
-                    print(f"❌ API yanıtında 'data' alanı bulunamadı.")
-                    return False
-                    
-                reels_media = data.get('reels_media')
-                if not reels_media:
-                    print(f"❌ API yanıtında 'reels_media' alanı bulunamadı.")
-                    return False
+                print("ℹ️ Highlight API yanıtı inceleniyor...")
                 
-                reels = reels_media
+                # Yanıt yapısını kontrol et ve farklı formatları dene
+                reels = None
+                
+                # Format 1: data.reels_media
+                if 'data' in highlight_data and highlight_data.get('data'):
+                    data = highlight_data.get('data')
+                    if 'reels_media' in data and data.get('reels_media'):
+                        reels = data.get('reels_media')
+                
+                # Format 2: reels_media
+                if not reels and 'reels_media' in highlight_data and highlight_data.get('reels_media'):
+                    reels = highlight_data.get('reels_media')
+                
+                # Format 3: items doğrudan API yanıtında
+                if not reels and 'items' in highlight_data and isinstance(highlight_data.get('items'), list):
+                    # items doğrudan varsa, bunu bir wrapper dictionary içine koyalım
+                    reels = [{'items': highlight_data.get('items')}]
+                
+                # Format 4: data.items
+                if not reels and 'data' in highlight_data and 'items' in highlight_data.get('data', {}) and isinstance(highlight_data.get('data', {}).get('items'), list):
+                    # items data içindeyse, bunu bir wrapper dictionary içine koyalım
+                    reels = [{'items': highlight_data.get('data', {}).get('items')}]
+                
+                # Hiçbir format bulunamadıysa reels doğrudan items listesini ara
+                if not reels:
+                    # API yanıtının anahtar yapısını göster
+                    print("❌ API yanıtında beklenen format bulunamadı.")
+                    print(f"API'nin üst seviye anahtarları: {', '.join(highlight_data.keys())}")
+                    
+                    if 'data' in highlight_data:
+                        print(f"'data' anahtarının içindeki anahtarlar: {', '.join(highlight_data['data'].keys())}")
+                    
+                    # Kullanıcıdan manuel olarak devam etme seçeneği sun
+                    print("\nEğer API yanıt çıktısında 'items' anahtarının nerede olduğunu tespit ettiyseniz,")
+                    print("ilgili JSON yolunu nokta ile ayırarak girin (örn: 'data.reels_media.0')")
+                    print("Veya çıkmak için '0' girin:")
+                    
+                    items_path = input("> ").strip()
+                    
+                    if items_path and items_path != "0":
+                        try:
+                            # Nokta notasyonu ile verilen yolu takip et
+                            parts = items_path.strip().split('.')
+                            current = highlight_data
+                            for part in parts:
+                                if part.isdigit():  # Liste indeksi
+                                    current = current[int(part)]
+                                else:
+                                    current = current.get(part, {})
+                            
+                            if current and isinstance(current, dict) and 'items' in current:
+                                # items bulundu
+                                reels = [current]
+                                print("✅ Manuel olarak belirtilen yoldan hikaye medyaları bulundu.")
+                            elif current and isinstance(current, list):
+                                # Doğrudan items listesi bulundu
+                                reels = [{'items': current}]
+                                print("✅ Manuel olarak belirtilen yoldan hikaye medyaları bulundu.")
+                            else:
+                                print("❌ Belirtilen yoldan 'items' listesi bulunamadı.")
+                                return False
+                        except Exception as e:
+                            print(f"❌ Manuel yol işlenirken hata: {str(e)}")
+                            return False
+                    else:
+                        print(self._("no_highlights_found", username))
+                        return False
             except Exception as e:
                 print(f"❌ Highlight verisi ayrıştırılamadı: {str(e)}")
+                print(f"Response status: {highlight_response.status_code}")
                 return False
             
             if not reels:

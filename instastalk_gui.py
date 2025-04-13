@@ -876,7 +876,6 @@ class InstaStalkGUI(tk.Tk):
         threading.Thread(target=self._fetch_highlights_thread, args=(username,)).start()
     
     def _fetch_highlights_thread(self, username):
-        """Arka planda öne çıkan hikayeleri getir."""
         try:
             self.update_status(f"{username} kullanıcısının öne çıkan hikayeleri getiriliyor...")
             self.update_result_text(self.highlights_result_text, f"⏳ {username} kullanıcısının öne çıkan hikayeleri getiriliyor...\n")
@@ -1002,27 +1001,80 @@ class InstaStalkGUI(tk.Tk):
                     self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının öne çıkan hikayeleri için geçerli veri alınamadı.\n")
                     return
                 
-                data = highlights_data.get('data')
-                if not data:
-                    self.update_result_text(self.highlights_result_text, f"❌ API yanıtında 'data' alanı bulunamadı.\n")
-                    return
+                # Yanıt yapısını inceleme
+                self.update_result_text(self.highlights_result_text, f"ℹ️ API yanıtı inceleniyor...\n")
+                
+                # Yanıt yapısını kontrol et ve farklı formatları dene
+                highlights = None
+                
+                # Format 1: data.user.edge_highlight_reels.edges
+                if 'data' in highlights_data and highlights_data.get('data'):
+                    data = highlights_data.get('data')
+                    if 'user' in data and data.get('user'):
+                        user = data.get('user')
+                        if 'edge_highlight_reels' in user and user.get('edge_highlight_reels'):
+                            edge_highlight_reels = user.get('edge_highlight_reels')
+                            if 'edges' in edge_highlight_reels and edge_highlight_reels.get('edges'):
+                                highlights = edge_highlight_reels.get('edges')
+                
+                # Format 2: user.edge_highlight_reels.edges
+                if not highlights and 'user' in highlights_data and highlights_data.get('user'):
+                    user = highlights_data.get('user')
+                    if 'edge_highlight_reels' in user and user.get('edge_highlight_reels'):
+                        edge_highlight_reels = user.get('edge_highlight_reels')
+                        if 'edges' in edge_highlight_reels and edge_highlight_reels.get('edges'):
+                            highlights = edge_highlight_reels.get('edges')
+                
+                # Format 3: edge_highlight_reels.edges
+                if not highlights and 'edge_highlight_reels' in highlights_data and highlights_data.get('edge_highlight_reels'):
+                    edge_highlight_reels = highlights_data.get('edge_highlight_reels')
+                    if 'edges' in edge_highlight_reels and edge_highlight_reels.get('edges'):
+                        highlights = edge_highlight_reels.get('edges')
+                
+                # Format 4: data.edges
+                if not highlights and 'data' in highlights_data and highlights_data.get('data'):
+                    data = highlights_data.get('data')
+                    if 'edges' in data and data.get('edges'):
+                        highlights = data.get('edges')
+                
+                # Hiçbir format bulunamadıysa hata ver
+                if not highlights:
+                    # API yanıtını detaylı incele ve rapor et
+                    debug_str = f"❌ API yanıtında beklenen format bulunamadı.\nYanıt içeriği (ilk 1000 karakter):\n"
+                    debug_str += str(highlights_data)[:1000] + "...\n"
+                    debug_str += "API'nin üst seviye anahtarları: " + ", ".join(highlights_data.keys()) + "\n"
                     
-                user = data.get('user')
-                if not user:
-                    self.update_result_text(self.highlights_result_text, f"❌ API yanıtında 'user' alanı bulunamadı.\n")
-                    return
+                    if 'data' in highlights_data:
+                        debug_str += "'data' anahtarının içindeki anahtarlar: " + ", ".join(highlights_data['data'].keys()) + "\n"
                     
-                edge_highlight_reels = user.get('edge_highlight_reels')
-                if not edge_highlight_reels:
-                    self.update_result_text(self.highlights_result_text, f"❌ API yanıtında 'edge_highlight_reels' alanı bulunamadı.\n")
-                    return
+                    self.update_result_text(self.highlights_result_text, debug_str)
                     
-                edges = edge_highlight_reels.get('edges')
-                if not edges:
-                    self.update_result_text(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
-                    return
+                    # Kullanıcıya manuel olarak devam etme seçeneği sun
+                    highlights_manual = simpledialog.askstring("Öne Çıkan Hikayeleri Manuel Bul", 
+                                                              f"{username} kullanıcısının öne çıkan hikayeleri otomatik olarak bulunamadı.\n\n"
+                                                              "Eğer API yanıt çıktısında 'edges' anahtarının nerede olduğunu tespit ettiyseniz,\n"
+                                                              "ilgili JSON yolunu nokta ile ayırarak girin (örn: 'data.user.items'):")
                     
-                highlights = edges
+                    if highlights_manual:
+                        try:
+                            # Nokta notasyonu ile verilen yolu takip et
+                            parts = highlights_manual.strip().split('.')
+                            current = highlights_data
+                            for part in parts:
+                                current = current.get(part, {})
+                            
+                            if current and isinstance(current, list):
+                                highlights = current
+                                self.update_result_text(self.highlights_result_text, f"✅ Manuel olarak belirtilen yoldan öne çıkan hikayeler bulundu.\n")
+                            else:
+                                self.update_result_text(self.highlights_result_text, f"❌ Belirtilen yoldan geçerli bir liste bulunamadı.\n")
+                                return
+                        except Exception as e:
+                            self.update_result_text(self.highlights_result_text, f"❌ Manuel yol işlenirken hata: {str(e)}\n")
+                            return
+                    else:
+                        self.update_result_text(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
+                        return
                 
             except Exception as e:
                 self.update_result_text(self.highlights_result_text, f"❌ Highlights verisi ayrıştırılamadı: {str(e)}\n")
