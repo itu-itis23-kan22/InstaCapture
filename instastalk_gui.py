@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 import json
 import webbrowser
+import re
 
 # Paket yükleme fonksiyonu
 def install_package(package_name):
@@ -244,25 +245,23 @@ class InstaStalkGUI(tk.Tk):
         self.batch_tab = ttk.Frame(self.tab_control)
         self.tab_control.add(self.batch_tab, text="Toplu İndirme")
         
+        # Öne Çıkan Hikayeler sekmesi
+        self.highlights_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.highlights_tab, text="Öne Çıkanlar")
+        
         # Log sekmesi
         self.log_tab = ttk.Frame(self.tab_control)
         self.tab_control.add(self.log_tab, text="Log")
         
-        self.tab_control.pack(expand=True, fill=tk.BOTH)
+        # Tab kontrolünü yerleştir
+        self.tab_control.pack(fill=tk.BOTH, expand=True)
         
-        # Hikaye indirme sekmesi içeriği
+        # Sekme içeriklerini oluştur
         self.create_story_tab()
-        
-        # Gönderi indirme sekmesi içeriği
         self.create_post_tab()
-        
-        # Profil indirme sekmesi içeriği
         self.create_profile_tab()
-        
-        # Toplu indirme sekmesi içeriği
         self.create_batch_tab()
-        
-        # Log sekmesi içeriği
+        self.create_highlights_tab()
         self.create_log_tab()
     
     def create_story_tab(self):
@@ -389,6 +388,69 @@ class InstaStalkGUI(tk.Tk):
         self.batch_result_text = scrolledtext.ScrolledText(result_frame, wrap=tk.WORD, height=15)
         self.batch_result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.batch_result_text.config(state=tk.DISABLED)
+    
+    def create_highlights_tab(self):
+        """Öne çıkan hikayeler sekmesini oluştur."""
+        # İçerik çerçevesi
+        content_frame = ttk.Frame(self.highlights_tab)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Başlık
+        title_label = ttk.Label(content_frame, text="Öne Çıkan Hikayeleri İndir", style='Title.TLabel')
+        title_label.pack(pady=(0, 20))
+        
+        # Kullanıcı adı girişi
+        username_frame = ttk.Frame(content_frame)
+        username_frame.pack(fill=tk.X, pady=5)
+        
+        username_label = ttk.Label(username_frame, text="Kullanıcı Adı:", width=15)
+        username_label.pack(side=tk.LEFT)
+        
+        self.highlights_username_var = tk.StringVar()
+        username_entry = ttk.Entry(username_frame, textvariable=self.highlights_username_var, width=30)
+        username_entry.pack(side=tk.LEFT, padx=5)
+        
+        # İndirme butonu
+        button_frame = ttk.Frame(content_frame)
+        button_frame.pack(fill=tk.X, pady=20)
+        
+        download_button = ttk.Button(button_frame, text="Öne Çıkanları Listele", command=self.fetch_highlights)
+        download_button.pack(side=tk.LEFT, padx=5)
+        
+        # Sonuç alanı
+        result_frame = ttk.Frame(content_frame)
+        result_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        # Highlights listesi
+        self.highlights_listbox_frame = ttk.LabelFrame(result_frame, text="Öne Çıkan Hikayeler")
+        self.highlights_listbox_frame.pack(fill=tk.BOTH, expand=True, side=tk.LEFT, padx=5, pady=5)
+        
+        self.highlights_listbox = tk.Listbox(self.highlights_listbox_frame, selectmode=tk.SINGLE, height=10)
+        self.highlights_listbox.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        
+        highlights_scrollbar = ttk.Scrollbar(self.highlights_listbox_frame, orient=tk.VERTICAL, command=self.highlights_listbox.yview)
+        highlights_scrollbar.pack(fill=tk.Y, side=tk.RIGHT)
+        self.highlights_listbox.config(yscrollcommand=highlights_scrollbar.set)
+        
+        # İndirme butonları
+        button_frame2 = ttk.Frame(result_frame)
+        button_frame2.pack(fill=tk.BOTH, side=tk.LEFT, padx=5, pady=5)
+        
+        self.download_selected_button = ttk.Button(button_frame2, text="Seçileni İndir", 
+                                                 command=self.download_selected_highlight, state=tk.DISABLED)
+        self.download_selected_button.pack(pady=5, fill=tk.X)
+        
+        self.download_all_button = ttk.Button(button_frame2, text="Tümünü İndir", 
+                                            command=self.download_all_highlights, state=tk.DISABLED)
+        self.download_all_button.pack(pady=5, fill=tk.X)
+        
+        # Sonuç metni
+        result_label = ttk.Label(content_frame, text="Sonuçlar:")
+        result_label.pack(anchor=tk.W, pady=(10, 0))
+        
+        self.highlights_result_text = scrolledtext.ScrolledText(content_frame, height=8)
+        self.highlights_result_text.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.highlights_result_text.config(state=tk.DISABLED)
     
     def create_log_tab(self):
         """Log sekmesini oluştur."""
@@ -776,21 +838,14 @@ class InstaStalkGUI(tk.Tk):
         self.update_status(self._("lang_changed", self.stalker.settings["language"]))
     
     def refresh_language(self, event=None):
-        """Dil değişikliğinden sonra arayüzü güncelle."""
-        # Menü metinlerini güncelle
-        self.file_menu.entryconfig(0, label=self._("menu_set_cookies") if hasattr(self, "_") else "Set Cookies")
-        self.file_menu.entryconfig(2, label=self._("menu_exit") if hasattr(self, "_") else "Exit")
-        
-        self.tools_menu.entryconfig(0, label=self._("menu_list_downloads") if hasattr(self, "_") else "List Downloads")
-        self.tools_menu.entryconfig(1, label=self._("menu_clean") if hasattr(self, "_") else "Clean All Downloads")
-        
-        # Sekme metinlerini güncelle
-        if hasattr(self, "tab_control"):
-            tab_texts = ["Hikayeler", "Gönderiler", "Profil Resmi", "Toplu İndirme", "Log"]
-            eng_tab_texts = ["Stories", "Posts", "Profile Picture", "Batch Download", "Log"]
-            
-            for i, text in enumerate(tab_texts if self.stalker.settings.get("language") == "tr" else eng_tab_texts):
-                self.tab_control.tab(i, text=text)
+        """Dil değişikliğinde UI metinlerini güncelle."""
+        # Tab başlıkları
+        self.tab_control.tab(0, text=self._("tab_stories") if "tab_stories" in TRANSLATIONS[self.lang_var.get()] else "Hikayeler")
+        self.tab_control.tab(1, text=self._("tab_posts") if "tab_posts" in TRANSLATIONS[self.lang_var.get()] else "Gönderiler")
+        self.tab_control.tab(2, text=self._("tab_profile") if "tab_profile" in TRANSLATIONS[self.lang_var.get()] else "Profil Resmi")
+        self.tab_control.tab(3, text=self._("tab_batch") if "tab_batch" in TRANSLATIONS[self.lang_var.get()] else "Toplu İndirme")
+        self.tab_control.tab(4, text=self._("tab_highlights") if "tab_highlights" in TRANSLATIONS[self.lang_var.get()] else "Öne Çıkanlar")
+        self.tab_control.tab(5, text=self._("tab_log") if "tab_log" in TRANSLATIONS[self.lang_var.get()] else "Log")
     
     def on_close(self):
         """Uygulama kapatılırken yapılacak işlemler."""
@@ -799,6 +854,186 @@ class InstaStalkGUI(tk.Tk):
         
         # Uygulamayı kapat
         self.destroy()
+
+    def fetch_highlights(self):
+        """Öne çıkan hikayeleri getir."""
+        username = self.highlights_username_var.get().strip()
+        if not username:
+            messagebox.showerror("Hata", "Lütfen bir kullanıcı adı girin.")
+            return
+        
+        # Listbox'ı temizle
+        self.highlights_listbox.delete(0, tk.END)
+        self.highlights_result_text.config(state=tk.NORMAL)
+        self.highlights_result_text.delete(1.0, tk.END)
+        self.highlights_result_text.config(state=tk.DISABLED)
+        
+        # Butonları devre dışı bırak
+        self.download_selected_button.config(state=tk.DISABLED)
+        self.download_all_button.config(state=tk.DISABLED)
+        
+        # Öne çıkan hikayeleri getir
+        threading.Thread(target=self._fetch_highlights_thread, args=(username,)).start()
+    
+    def _fetch_highlights_thread(self, username):
+        """Arka planda öne çıkan hikayeleri getir."""
+        try:
+            self.update_status(f"{username} kullanıcısının öne çıkan hikayeleri getiriliyor...")
+            self.update_result_text(self.highlights_result_text, f"⏳ {username} kullanıcısının öne çıkan hikayeleri getiriliyor...\n")
+            
+            # Cookies kontrolü
+            if not self.stalker.cookies:
+                self.update_result_text(self.highlights_result_text, "❌ Çerezler ayarlanmamış. Lütfen önce çerezleri ayarlayın.\n")
+                messagebox.showerror("Hata", "Çerezler ayarlanmamış. Lütfen önce çerezleri ayarlayın.")
+                return
+            
+            # Instagram'dan kullanıcının profil sayfasını çek
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(f"https://www.instagram.com/{username}/", headers=headers, cookies=self.stalker.cookies)
+            
+            if response.status_code != 200:
+                self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının profili bulunamadı.\n")
+                return
+            
+            # Kullanıcı ID'sini bul
+            user_id_match = re.search(r'"user_id":"(\d+)"', response.text)
+            if not user_id_match:
+                self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının ID'si bulunamadı.\n")
+                return
+            
+            user_id = user_id_match.group(1)
+            
+            # Highlights API'sine istek gönder
+            highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_related_profiles%22%3Afalse%7D"
+            
+            highlights_response = requests.get(highlights_url, headers=headers, cookies=self.stalker.cookies)
+            
+            if highlights_response.status_code != 200:
+                self.update_result_text(self.highlights_result_text, f"❌ {username} kullanıcısının öne çıkan hikayeleri alınamadı.\n")
+                return
+            
+            # Highlights verilerini ayrıştır
+            highlights_data = highlights_response.json()
+            highlights = highlights_data.get('data', {}).get('user', {}).get('edge_highlight_reels', {}).get('edges', [])
+            
+            if not highlights:
+                self.update_result_text(self.highlights_result_text, f"ℹ️ {username} kullanıcısının öne çıkan hikayesi bulunamadı.\n")
+                return
+            
+            # Öne çıkan hikayeleri listele
+            self.update_result_text(self.highlights_result_text, f"✅ {username} kullanıcısının {len(highlights)} adet öne çıkan hikayesi bulundu.\n")
+            
+            # Highlight bilgilerini sakla
+            self.current_highlights = []
+            
+            # Highlights listesini doldur
+            for i, highlight in enumerate(highlights):
+                node = highlight.get('node', {})
+                title = node.get('title', f"Highlight-{i+1}")
+                highlight_id = node.get('id')
+                media_count = node.get('highlight_reel_count', 0)
+                
+                self.current_highlights.append({
+                    'title': title,
+                    'id': highlight_id,
+                    'count': media_count
+                })
+                
+                self.highlights_listbox.insert(tk.END, f"{title} ({media_count} hikaye)")
+            
+            # Butonları etkinleştir
+            self.download_selected_button.config(state=tk.NORMAL)
+            self.download_all_button.config(state=tk.NORMAL)
+            
+            self.update_status(f"{username} kullanıcısının öne çıkan hikayeleri listelendi")
+            
+        except Exception as e:
+            self.update_result_text(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
+            messagebox.showerror("Hata", f"Öne çıkan hikayeler alınırken bir hata oluştu: {str(e)}")
+    
+    def download_selected_highlight(self):
+        """Seçilen öne çıkan hikayeyi indir."""
+        selected_idx = self.highlights_listbox.curselection()
+        if not selected_idx:
+            messagebox.showerror("Hata", "Lütfen indirmek istediğiniz bir öne çıkan hikaye seçin.")
+            return
+        
+        idx = selected_idx[0]
+        if idx < 0 or idx >= len(self.current_highlights):
+            return
+        
+        highlight = self.current_highlights[idx]
+        username = self.highlights_username_var.get().strip()
+        
+        threading.Thread(target=self._download_highlight_thread, args=(username, highlight)).start()
+    
+    def download_all_highlights(self):
+        """Tüm öne çıkan hikayeleri indir."""
+        if not self.current_highlights:
+            return
+        
+        username = self.highlights_username_var.get().strip()
+        threading.Thread(target=self._download_all_highlights_thread, args=(username, self.current_highlights)).start()
+    
+    def _download_highlight_thread(self, username, highlight):
+        """Arka planda bir öne çıkan hikayeyi indir."""
+        try:
+            title = highlight['title']
+            self.update_status(f"'{title}' öne çıkan hikayesi indiriliyor...")
+            self.update_result_text(self.highlights_result_text, f"\n⏳ '{title}' öne çıkan hikayesi indiriliyor...\n")
+            
+            # Öne çıkan hikayeyi indir
+            base_dir = self.stalker.content_types["stories"] / username / "highlights"
+            success = self.stalker._download_single_highlight(username, highlight, base_dir)
+            
+            if success:
+                self.update_status(f"'{title}' öne çıkan hikayesi başarıyla indirildi")
+            else:
+                self.update_status(f"'{title}' öne çıkan hikayesi indirilirken bir hata oluştu")
+                
+        except Exception as e:
+            self.update_result_text(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
+            messagebox.showerror("Hata", f"Öne çıkan hikaye indirilirken bir hata oluştu: {str(e)}")
+    
+    def _download_all_highlights_thread(self, username, highlights):
+        """Arka planda tüm öne çıkan hikayeleri indir."""
+        try:
+            self.update_status(f"{username} kullanıcısının tüm öne çıkan hikayeleri indiriliyor...")
+            self.update_result_text(self.highlights_result_text, f"\n⏳ {len(highlights)} adet öne çıkan hikaye indiriliyor...\n")
+            
+            base_dir = self.stalker.content_types["stories"] / username / "highlights"
+            base_dir.mkdir(exist_ok=True, parents=True)
+            
+            success_count = 0
+            fail_count = 0
+            
+            for i, highlight in enumerate(highlights, 1):
+                title = highlight['title']
+                self.update_result_text(self.highlights_result_text, f"⏳ [{i}/{len(highlights)}] '{title}' öne çıkan hikayesi indiriliyor...\n")
+                
+                try:
+                    success = self.stalker._download_single_highlight(username, highlight, base_dir)
+                    if success:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        self.update_result_text(self.highlights_result_text, f"❌ '{title}' öne çıkan hikayesi indirilemedi\n")
+                except Exception as e:
+                    fail_count += 1
+                    self.update_result_text(self.highlights_result_text, f"❌ '{title}' indirilirken hata: {str(e)}\n")
+            
+            summary = f"\n✅ Toplam {len(highlights)} öne çıkan hikayeden {success_count} tanesi başarıyla indirildi"
+            if fail_count > 0:
+                summary += f", {fail_count} tanesi başarısız oldu"
+                
+            self.update_result_text(self.highlights_result_text, summary + "\n")
+            self.update_status(f"{username} kullanıcısının öne çıkan hikayeleri indirildi ({success_count}/{len(highlights)})")
+            
+        except Exception as e:
+            self.update_result_text(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
+            messagebox.showerror("Hata", f"Öne çıkan hikayeler indirilirken bir hata oluştu: {str(e)}")
 
 
 def main():
