@@ -1759,21 +1759,12 @@ class InstaStalkGUI(tk.Tk):
         self.update_result_text("", append=False)
         self.update_status(f"{self._('downloading_reels')} {username} ({limit} reels)...")
 
-    def get_cookies_dict(self):
-        """Get cookies as dictionary for API requests.
-        This is a helper method needed in the GUI to check if cookies are set.
-        """
-        if hasattr(self, 'cookies_dict') and self.cookies_dict:
-            return self.cookies_dict
-        return None
-
 
 def main():
     """Ana fonksiyon - GUI uygulamasını başlat."""
     app = InstaStalkGUI()
     app.mainloop()
-
-
+    
 if __name__ == "__main__":
     main()
     

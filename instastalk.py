@@ -447,15 +447,23 @@ class InstaStalker:
                     json.dump(self.cookies, f)
             
             # Dosya izinlerini ayarla
-            os.chmod(self.cookies_file, 0o600)  # Sadece kullanıcının erişebilmesi için izinleri ayarla
+            os.chmod(self.cookies_file, 0o600)  # Sadece kullanıcı okuyabilir/yazabilir
             
-            encryption_status = "🔒 şifreli" if self.settings.get("encryption_enabled", False) else "şifrelenmemiş"
-            print(self._("cookies_saved", f"{str(self.cookies_file)} ({encryption_status})"))
+            cookie_keys = ', '.join(self.cookies.keys())
+            print(self._("cookies_saved", cookie_keys))
             return True
         except Exception as e:
             print(self._("cookies_not_saved", str(e)))
-        return False
-        
+            return False
+    
+    def get_cookies_dict(self):
+        """Get cookies as dictionary for API requests.
+        This is a helper method needed in the GUI to check if cookies are set.
+        """
+        if hasattr(self, 'cookies') and self.cookies:
+            return self.cookies
+        return None
+    
     def toggle_encryption(self):
         """Çerez şifrelemeyi aç/kapat."""
         current_status = self.settings.get("encryption_enabled", False)
