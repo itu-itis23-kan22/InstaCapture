@@ -1056,7 +1056,8 @@ class InstaStalker:
                     return False
                     
             # Highlights API'sine istek gönder
-            highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_related_profiles%22%3Afalse%7D"
+            # Güncel query_hash değeri kullanılıyor
+            highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_live_status%22%3Atrue%7D"
             
             highlights_response = requests.get(highlights_url, headers=headers, cookies=self.cookies)
             
@@ -1074,127 +1075,114 @@ class InstaStalker:
                 print("ℹ️ Highlight API yanıtı inceleniyor...")
                 
                 # Yanıt yapısını kontrol et ve farklı formatları dene
-                reels = None
+                highlight_items = []
                 
-                # Format 1: data.reels_media
-                if 'data' in highlight_data and highlight_data.get('data'):
-                    data = highlight_data.get('data')
-                    if 'reels_media' in data and data.get('reels_media'):
-                        reels = data.get('reels_media')
-                
-                # Format 2: reels_media
-                if not reels and 'reels_media' in highlight_data and highlight_data.get('reels_media'):
-                    reels = highlight_data.get('reels_media')
-                
-                # Format 3: items doğrudan API yanıtında
-                if not reels and 'items' in highlight_data and isinstance(highlight_data.get('items'), list):
-                    # items doğrudan varsa, bunu bir wrapper dictionary içine koyalım
-                    reels = [{'items': highlight_data.get('items')}]
-                
-                # Format 4: data.items
-                if not reels and 'data' in highlight_data and 'items' in highlight_data.get('data', {}) and isinstance(highlight_data.get('data', {}).get('items'), list):
-                    # items data içindeyse, bunu bir wrapper dictionary içine koyalım
-                    reels = [{'items': highlight_data.get('data', {}).get('items')}]
-                
-                # Hiçbir format bulunamadıysa reels doğrudan items listesini ara
-                if not reels:
-                    # API yanıtının anahtar yapısını göster
-                    print("❌ API yanıtında beklenen format bulunamadı.")
-                    print(f"API'nin üst seviye anahtarları: {', '.join(highlight_data.keys())}")
+                # Otomatik olarak yanıt yapısını tespit etmeye çalış
+                if 'data' in highlight_data:
+                    data = highlight_data['data']
                     
-                    if 'data' in highlight_data:
-                        print(f"'data' anahtarının içindeki anahtarlar: {', '.join(highlight_data['data'].keys())}")
+                    # Olası yolları ara
+                    if 'user' in data and data['user']:
+                        user_data = data['user']
+                        if 'edge_highlight_reels' in user_data:
+                            edge_highlight_reels = user_data['edge_highlight_reels']
+                            if 'edges' in edge_highlight_reels:
+                                highlight_items = edge_highlight_reels['edges']
+                                print("✅ Highlight verisi bulundu: data.user.edge_highlight_reels.edges yapısında")
+                                
+                # Hiçbir highlight bulunamadıysa JSON yapısını incele
+                if not highlight_items:
+                    print("ℹ️ Alternatif yapılar aranıyor...")
                     
-                    # Kullanıcıdan manuel olarak devam etme seçeneği sun
-                    print("\nEğer API yanıt çıktısında 'items' anahtarının nerede olduğunu tespit ettiyseniz,")
-                    print("ilgili JSON yolunu nokta ile ayırarak girin (örn: 'data.reels_media.0')")
-                    print("Veya çıkmak için '0' girin:")
+                    # JSON yapısını yazdır (debug için)
+                    debug_str = f"API yanıt yapısı (ilk 500 karakter):\n"
+                    debug_str += json.dumps(highlight_data)[:500] + "...\n"
+                    print(debug_str)
                     
-                    items_path = input("> ").strip()
+                    # Kullanıcıya manuel giriş opsiyonu sun
+                    print("\nHighlight verisini içeren JSON yolunu belirtin veya çıkmak için 0 yazın.")
+                    print("Örneğin: data.user.edge_highlight_reels.edges")
                     
-                    if items_path and items_path != "0":
-                        try:
-                            # Nokta notasyonu ile verilen yolu takip et
-                            parts = items_path.strip().split('.')
-                            current = highlight_data
-                            for part in parts:
-                                if part.isdigit():  # Liste indeksi
-                                    current = current[int(part)]
-                                else:
-                                    current = current.get(part, {})
-                            
-                            if current and isinstance(current, dict) and 'items' in current:
-                                # items bulundu
-                                reels = [current]
-                                print("✅ Manuel olarak belirtilen yoldan hikaye medyaları bulundu.")
-                            elif current and isinstance(current, list):
-                                # Doğrudan items listesi bulundu
-                                reels = [{'items': current}]
-                                print("✅ Manuel olarak belirtilen yoldan hikaye medyaları bulundu.")
-                            else:
-                                print("❌ Belirtilen yoldan 'items' listesi bulunamadı.")
-                                return False
-                        except Exception as e:
-                            print(f"❌ Manuel yol işlenirken hata: {str(e)}")
-                            return False
-                    else:
-                        print(self._("no_highlights_found", username))
+                    manual_path = input("> ")
+                    
+                    if manual_path == "0":
+                        print(self._("highlight_cancel"))
                         return False
-            except Exception as e:
-                print(f"❌ Highlight verisi ayrıştırılamadı: {str(e)}")
-                print(f"Response status: {highlights_response.status_code}")
-                return False
-            
-            if not reels:
-                print(self._("no_highlights_found", username))
-                return False
-            
-            # Öne çıkan hikayeleri listele
-            print(self._("highlight_selection"))
-            
-            highlight_info = []
-            for i, highlight in enumerate(reels, 1):
-                node = highlight.get('node', {})
-                title = node.get('title', f"Highlight-{i}")
-                highlight_id = node.get('id')
-                media_count = node.get('highlight_reel_count', 0)
+                    
+                    try:
+                        # Manuel yolu takip et
+                        parts = manual_path.split('.')
+                        current = highlight_data
+                        
+                        for part in parts:
+                            if part.isdigit():
+                                current = current[int(part)]
+                            else:
+                                current = current.get(part, {})
+                        
+                        if isinstance(current, list):
+                            highlight_items = current
+                            print(f"✅ Highlight verisi manuel yoldan bulundu: {manual_path}")
+                        else:
+                            print("❌ Belirtilen yolda liste tipi veri bulunamadı.")
+                            return False
+                    except Exception as e:
+                        print(f"❌ Manuel yol işlenirken hata: {str(e)}")
+                        return False
                 
-                highlight_info.append({
-                    'title': title,
-                    'id': highlight_id,
-                    'count': media_count
-                })
+                if not highlight_items:
+                    print(self._("no_highlights_found", username))
+                    return False
                 
-                print(self._("highlight_item", i, title, media_count))
-            
-            print(self._("highlight_all"))
-            
-            # Kullanıcıdan hangi highlight'ı indirmek istediğini sor
-            choice = input(self._("highlight_choice")).strip()
-            
-            if choice == "0":
-                print(self._("highlight_cancel"))
-                return False
-            
-            # Tüm öne çıkan hikayeleri indir
-            if choice.lower() == "a":
-                all_success = True
-                for highlight in highlight_info:
-                    success = self._download_single_highlight(username, highlight, user_dir)
-                    all_success = all_success and success
-                return all_success
-            
-            # Seçilen öne çıkan hikayeyi indir
-            try:
-                choice_idx = int(choice) - 1
-                if 0 <= choice_idx < len(highlight_info):
-                    selected_highlight = highlight_info[choice_idx]
-                    return self._download_single_highlight(username, selected_highlight, user_dir)
-                else:
+                # Öne çıkan hikayeleri listele
+                print(self._("highlight_selection"))
+                
+                highlight_info = []
+                for i, highlight in enumerate(highlight_items, 1):
+                    node = highlight.get('node', {})
+                    title = node.get('title', f"Highlight-{i}")
+                    highlight_id = node.get('id')
+                    media_count = node.get('highlight_reel_count', 0)
+                    
+                    highlight_info.append({
+                        'title': title,
+                        'id': highlight_id,
+                        'count': media_count
+                    })
+                    
+                    print(self._("highlight_item", i, title, media_count))
+                
+                print(self._("highlight_all"))
+                
+                # Kullanıcıdan hangi highlight'ı indirmek istediğini sor
+                choice = input(self._("highlight_choice")).strip()
+                
+                if choice == "0":
+                    print(self._("highlight_cancel"))
+                    return False
+                
+                # Tüm öne çıkan hikayeleri indir
+                if choice.lower() == "a":
+                    all_success = True
+                    for highlight in highlight_info:
+                        success = self._download_single_highlight(username, highlight, user_dir)
+                        all_success = all_success and success
+                    return all_success
+                
+                # Seçilen öne çıkan hikayeyi indir
+                try:
+                    choice_idx = int(choice) - 1
+                    if 0 <= choice_idx < len(highlight_info):
+                        selected_highlight = highlight_info[choice_idx]
+                        return self._download_single_highlight(username, selected_highlight, user_dir)
+                    else:
+                        print(self._("invalid_choice"))
+                        return False
+                except ValueError:
                     print(self._("invalid_choice"))
                     return False
-            except ValueError:
-                print(self._("invalid_choice"))
+            except Exception as e:
+                print(self._("highlight_error", str(e)))
                 return False
         
         except Exception as e:
@@ -1218,7 +1206,8 @@ class InstaStalker:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
             
-            highlight_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22tag_names%22%3A%5B%5D%2C%22location_ids%22%3A%5B%5D%2C%22highlight_reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22precomposed_overlay%22%3Afalse%2C%22show_story_viewer_list%22%3Atrue%2C%22story_viewer_fetch_count%22%3A50%2C%22story_viewer_cursor%22%3A%22%22%2C%22stories_video_dash_manifest%22%3Afalse%7D"
+            # Güncel API query_hash ve parametrelerini kullan
+            highlight_url = f"https://www.instagram.com/graphql/query/?query_hash=45246d3fe16ccc6577e0bd297a5db1ab&variables=%7B%22reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22tag_names%22%3A%5B%5D%2C%22location_ids%22%3A%5B%5D%2C%22highlight_reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22precomposed_overlay%22%3Afalse%7D"
             
             highlight_response = requests.get(highlight_url, headers=headers, cookies=self.cookies)
             
@@ -1233,135 +1222,149 @@ class InstaStalker:
                     print(f"❌ API yanıtında veri bulunamadı.")
                     return False
                 
-                print("ℹ️ Highlight API yanıtı inceleniyor...")
+                print("ℹ️ Highlight medya verisi inceleniyor...")
                 
-                # Yanıt yapısını kontrol et ve farklı formatları dene
-                reels = None
+                # Medya içeriğine erişim için farklı JSON yapılarını dene
+                media_items = []
                 
-                # Format 1: data.reels_media
-                if 'data' in highlight_data and highlight_data.get('data'):
-                    data = highlight_data.get('data')
-                    if 'reels_media' in data and data.get('reels_media'):
-                        reels = data.get('reels_media')
+                # En yaygın format: data.reels_media[0].items
+                if 'data' in highlight_data and 'reels_media' in highlight_data['data']:
+                    reels_media = highlight_data['data']['reels_media']
+                    if reels_media and len(reels_media) > 0 and 'items' in reels_media[0]:
+                        media_items = reels_media[0]['items']
+                        print(f"✅ Highlight medya içeriği bulundu: {len(media_items)} öğe")
                 
-                # Format 2: reels_media
-                if not reels and 'reels_media' in highlight_data and highlight_data.get('reels_media'):
-                    reels = highlight_data.get('reels_media')
+                # Alternatif path: data.reels.{highlight_id}.items
+                if not media_items and 'data' in highlight_data and 'reels' in highlight_data['data']:
+                    reels = highlight_data['data']['reels']
+                    if highlight_id in reels and 'items' in reels[highlight_id]:
+                        media_items = reels[highlight_id]['items']
+                        print(f"✅ Highlight medya içeriği alternatif yoldan bulundu: {len(media_items)} öğe")
                 
-                # Format 3: items doğrudan API yanıtında
-                if not reels and 'items' in highlight_data and isinstance(highlight_data.get('items'), list):
-                    # items doğrudan varsa, bunu bir wrapper dictionary içine koyalım
-                    reels = [{'items': highlight_data.get('items')}]
-                
-                # Format 4: data.items
-                if not reels and 'data' in highlight_data and 'items' in highlight_data.get('data', {}) and isinstance(highlight_data.get('data', {}).get('items'), list):
-                    # items data içindeyse, bunu bir wrapper dictionary içine koyalım
-                    reels = [{'items': highlight_data.get('data', {}).get('items')}]
-                
-                # Hiçbir format bulunamadıysa reels doğrudan items listesini ara
-                if not reels:
-                    # API yanıtının anahtar yapısını göster
-                    print("❌ API yanıtında beklenen format bulunamadı.")
-                    print(f"API'nin üst seviye anahtarları: {', '.join(highlight_data.keys())}")
+                # Hiçbir medya bulunamadıysa JSON yapısını incele ve kullanıcıdan yardım iste
+                if not media_items:
+                    print("❌ Medya içeriği bulunamadı. API yanıt yapısı:")
+                    debug_str = json.dumps(highlight_data)[:500] + "..."
+                    print(debug_str)
                     
-                    if 'data' in highlight_data:
-                        print(f"'data' anahtarının içindeki anahtarlar: {', '.join(highlight_data['data'].keys())}")
+                    print("\nMediaları içeren JSON yolunu belirtin veya çıkmak için 0 yazın.")
+                    print("Örneğin: data.reels_media.0.items")
                     
-                    # Kullanıcıdan manuel olarak devam etme seçeneği sun
-                    print("\nEğer API yanıt çıktısında 'items' anahtarının nerede olduğunu tespit ettiyseniz,")
-                    print("ilgili JSON yolunu nokta ile ayırarak girin (örn: 'data.reels_media.0')")
-                    print("Veya çıkmak için '0' girin:")
+                    manual_path = input("> ")
                     
-                    items_path = input("> ").strip()
-                    
-                    if items_path and items_path != "0":
-                        try:
-                            # Nokta notasyonu ile verilen yolu takip et
-                            parts = items_path.strip().split('.')
-                            current = highlight_data
-                            for part in parts:
-                                if part.isdigit():  # Liste indeksi
-                                    current = current[int(part)]
-                                else:
-                                    current = current.get(part, {})
-                            
-                            if current and isinstance(current, dict) and 'items' in current:
-                                # items bulundu
-                                reels = [current]
-                                print("✅ Manuel olarak belirtilen yoldan hikaye medyaları bulundu.")
-                            elif current and isinstance(current, list):
-                                # Doğrudan items listesi bulundu
-                                reels = [{'items': current}]
-                                print("✅ Manuel olarak belirtilen yoldan hikaye medyaları bulundu.")
-                            else:
-                                print("❌ Belirtilen yoldan 'items' listesi bulunamadı.")
-                                return False
-                        except Exception as e:
-                            print(f"❌ Manuel yol işlenirken hata: {str(e)}")
-                            return False
-                    else:
-                        print(self._("no_highlights_found", username))
+                    if manual_path == "0":
+                        print(self._("highlight_cancel"))
                         return False
-            except Exception as e:
-                print(f"❌ Highlight verisi ayrıştırılamadı: {str(e)}")
-                print(f"Response status: {highlight_response.status_code}")
-                return False
-            
-            if not reels:
-                print(self._("no_highlights_found", username))
-                return False
-            
-            # Highlight medyalarını indir
-            downloaded_count = 0
-            for reel in reels:
-                items = reel.get('items', [])
-                for item in items:
+                    
+                    try:
+                        # Manuel yolu takip et
+                        parts = manual_path.split('.')
+                        current = highlight_data
+                        
+                        for part in parts:
+                            if part.isdigit():
+                                current = current[int(part)]
+                            else:
+                                current = current.get(part, {})
+                        
+                        if isinstance(current, list):
+                            media_items = current
+                            print(f"✅ Medya içeriği manuel yoldan bulundu: {len(media_items)} öğe")
+                        else:
+                            print("❌ Belirtilen yolda liste tipi medya verisi bulunamadı.")
+                            return False
+                    except Exception as e:
+                        print(f"❌ Manuel yol işlenirken hata: {str(e)}")
+                        return False
+                
+                if not media_items:
+                    print(f"❌ {title} için indirilebilir medya bulunamadı.")
+                    return False
+                
+                # Highlight medyalarını indir
+                downloaded_count = 0
+                
+                for item in media_items:
+                    # Medya ID'si ve zaman damgası
+                    media_id = item.get('id', 'unknown')
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    
                     is_video = item.get('is_video', False)
                     
                     if is_video:
-                        # Video indir
-                        video_url = item.get('video_resources', [{}])[0].get('src')
+                        # Video URL'sini bul
+                        video_url = None
+                        
+                        # Ana video URL'si
+                        if 'video_versions' in item and len(item['video_versions']) > 0:
+                            video_url = item['video_versions'][0].get('url')
+                        # Alternatif video kaynak yapısı
+                        elif 'video_resources' in item and len(item['video_resources']) > 0:
+                            video_url = item['video_resources'][0].get('src')
+                        
                         if not video_url:
+                            print(f"⚠️ Video URL'si bulunamadı: {media_id}")
                             continue
                         
-                        media_id = item.get('id')
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        # Dosya adı ve yolu
                         video_filename = f"{username}_highlight_{title}_{media_id}_{timestamp}.mp4"
                         video_path = highlight_dir / video_filename
                         
-                        # İndir
-                        video_response = requests.get(video_url, stream=True)
-                        with open(video_path, 'wb') as f:
-                            for chunk in video_response.iter_content(chunk_size=8192):
-                                if chunk:
-                                    f.write(chunk)
-                        
-                        downloaded_count += 1
+                        # Video indir
+                        print(f"⏳ Video indiriliyor: {media_id}")
+                        try:
+                            video_response = requests.get(video_url, stream=True)
+                            with open(video_path, 'wb') as f:
+                                for chunk in video_response.iter_content(chunk_size=8192):
+                                    if chunk:
+                                        f.write(chunk)
+                            downloaded_count += 1
+                            print(f"✅ Video indirildi: {video_filename}")
+                        except Exception as e:
+                            print(f"❌ Video indirme hatası ({media_id}): {str(e)}")
                     else:
-                        # Resim indir
-                        display_resources = item.get('display_resources', [])
-                        if not display_resources:
+                        # Resim URL'sini bul
+                        image_url = None
+                        
+                        # Ana resim URL'si
+                        if 'image_versions2' in item and 'candidates' in item['image_versions2']:
+                            candidates = item['image_versions2']['candidates']
+                            if candidates and len(candidates) > 0:
+                                image_url = candidates[0].get('url')
+                        # Alternatif resim kaynak yapısı
+                        elif 'display_resources' in item and len(item['display_resources']) > 0:
+                            # En yüksek çözünürlüklü resmi al
+                            sorted_resources = sorted(item['display_resources'], 
+                                                    key=lambda x: x.get('config_width', 0), 
+                                                    reverse=True)
+                            image_url = sorted_resources[0].get('src')
+                        
+                        if not image_url:
+                            print(f"⚠️ Resim URL'si bulunamadı: {media_id}")
                             continue
                         
-                        # En yüksek çözünürlüklü resmi al
-                        sorted_resources = sorted(display_resources, key=lambda x: x.get('config_width', 0), reverse=True)
-                        image_url = sorted_resources[0].get('src')
-                        
-                        media_id = item.get('id')
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        # Dosya adı ve yolu
                         image_filename = f"{username}_highlight_{title}_{media_id}_{timestamp}.jpg"
                         image_path = highlight_dir / image_filename
                         
-                        # İndir
-                        image_response = requests.get(image_url)
-                        with open(image_path, 'wb') as f:
-                            f.write(image_response.content)
-                        
-                        downloaded_count += 1
-            
-            print(self._("highlight_success", title, downloaded_count))
-            print(self._("highlight_saved", highlight_dir))
-            return True
+                        # Resim indir
+                        print(f"⏳ Resim indiriliyor: {media_id}")
+                        try:
+                            image_response = requests.get(image_url)
+                            with open(image_path, 'wb') as f:
+                                f.write(image_response.content)
+                            downloaded_count += 1
+                            print(f"✅ Resim indirildi: {image_filename}")
+                        except Exception as e:
+                            print(f"❌ Resim indirme hatası ({media_id}): {str(e)}")
+                
+                print(self._("highlight_success", title, downloaded_count))
+                print(self._("highlight_saved", highlight_dir))
+                return downloaded_count > 0
+                
+            except Exception as e:
+                print(f"❌ Highlight verisi ayrıştırılamadı: {str(e)}")
+                return False
         
         except Exception as e:
             print(self._("highlight_error", str(e)))
