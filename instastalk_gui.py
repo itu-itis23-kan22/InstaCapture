@@ -272,8 +272,8 @@ class InstaStalkGUI(tk.Tk):
         username_label.pack(side=tk.LEFT, padx=5)
         
         self.story_username_var = tk.StringVar()
-        username_entry = ttk.Entry(username_frame, textvariable=self.story_username_var, width=30)
-        username_entry.pack(side=tk.LEFT, padx=5)
+        self.username_entry = ttk.Entry(username_frame, textvariable=self.story_username_var, width=30)
+        self.username_entry.pack(side=tk.LEFT, padx=5)
         
         # İndirme butonu
         download_button = ttk.Button(username_frame, text="Hikayeleri İndir", command=self.download_stories)
