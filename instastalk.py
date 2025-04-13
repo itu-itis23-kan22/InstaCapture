@@ -971,13 +971,71 @@ class InstaStalker:
                 print(self._("no_highlights_found", username))
                 return False
             
-            # Kullanıcı ID'sini bul
-            user_id_match = re.search(r'"user_id":"(\d+)"', response.text)
-            if not user_id_match:
-                print(self._("no_highlights_found", username))
-                return False
+            # Kullanıcı ID'sini bulacak birden fazla regex dene
+            user_id = None
             
-            user_id = user_id_match.group(1)
+            # Pattern 1: Orijinal pattern '"user_id":"(\d+)"'
+            user_id_match = re.search(r'"user_id":"(\d+)"', response.text)
+            if user_id_match:
+                user_id = user_id_match.group(1)
+            
+            # Pattern 2: JSON formatında olabilir: "id":"12345678"
+            if not user_id:
+                user_id_match = re.search(r'"id":"(\d+)"[^}]*?"username":"{}"'.format(username), response.text)
+                if user_id_match:
+                    user_id = user_id_match.group(1)
+            
+            # Pattern 3: Farklı bir pattern 'profilePage_(\d+)'
+            if not user_id:
+                user_id_match = re.search(r'profilePage_(\d+)', response.text)
+                if user_id_match:
+                    user_id = user_id_match.group(1)
+            
+            # Pattern 4: Daha spesifik bir XPath tarzı sorgu
+            if not user_id:
+                user_id_match = re.search(r'"X-IG-App-ID":"[^"]+","user_id":"(\d+)"', response.text)
+                if user_id_match:
+                    user_id = user_id_match.group(1)
+                    
+            # Pattern 5: Instagram script tag'inden userId çıkarma
+            if not user_id:
+                user_id_match = re.search(r'<script[^>]*>\s*window\._sharedData\s*=\s*({.*?});</script>', response.text, re.DOTALL)
+                if user_id_match:
+                    try:
+                        shared_data = json.loads(user_id_match.group(1))
+                        user_id = shared_data.get('entry_data', {}).get('ProfilePage', [{}])[0].get('graphql', {}).get('user', {}).get('id')
+                    except:
+                        pass
+                        
+            # Hiçbir şekilde ID bulunamazsa alternatif yöntem dene - profil resminden ID çıkar
+            if not user_id:
+                profile_pic_match = re.search(r'profile_pic_url":"([^"]+)"', response.text)
+                if profile_pic_match:
+                    pic_url = profile_pic_match.group(1).replace('\\u0026', '&')
+                    profile_id_match = re.search(r'/(\d+)_', pic_url)
+                    if profile_id_match:
+                        user_id = profile_id_match.group(1)
+            
+            if not user_id:
+                # Daha agresif bir yöntem - sayfadaki tüm sayısal ID'leri tarayalım
+                all_ids = re.findall(r'"id":"(\d+)"', response.text)
+                common_ids = {}
+                
+                for id in all_ids:
+                    if id in common_ids:
+                        common_ids[id] += 1
+                    else:
+                        common_ids[id] = 1
+                
+                # En çok tekrar eden ID'yi kullan (muhtemelen kullanıcı ID'si)
+                if common_ids:
+                    user_id = max(common_ids.items(), key=lambda x: x[1])[0]
+            
+            if not user_id:
+                print(self._("no_highlights_found", username))
+                print("🔍 Instagram'ın yaptığı güncellemeler nedeniyle kullanıcı ID'si çıkarılamıyor.")
+                print("💡 Tarayıcınızda Web Geliştirici Araçlarını açıp, Network sekmesinde 'graphql' isminde bir istek bulabilir ve sorgu parametrelerinden user_id'yi manuel olarak bulabilirsiniz.")
+                return False
             
             # Highlights API'sine istek gönder
             highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_related_profiles%22%3Afalse%7D"
