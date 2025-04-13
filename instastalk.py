@@ -92,7 +92,7 @@ TRANSLATIONS = {
         "menu_batch_download": "4. Toplu İndirme",
         "menu_set_cookies": "5. Çerezleri Ayarla",
         "menu_list_downloads": "6. İndirilen Dosyaları Listele",
-        "menu_clean": "7. Tüm İndirilen Dosyaları Temizle", 
+        "menu_clean": "7. Tüm İndirilen Dosyaları Temizle",
         "menu_lang": "8. Dil Değiştir (Change Language)",
         "menu_exit": "9. Çıkış",
         "menu_choice": "\nSeçiminiz (1-9): ",
@@ -125,6 +125,19 @@ TRANSLATIONS = {
         "disabling_encryption": "⏳ Çerez şifreleme devre dışı bırakılıyor...",
         "encryption_error": "🔒 Şifreleme hatası: {0}",
         "encryption_info": "🔒 Çerez şifreleme durumu: {0}",
+        "menu_10": "10. Öne Çıkan Hikayeleri İndir",
+        "highlight_username_prompt": "Öne çıkan hikayeleri indirilecek kullanıcı adı: ",
+        "downloading_highlights": "\n⏳ {0} kullanıcısının öne çıkan hikayeleri alınıyor...",
+        "no_highlights_found": "❌ {0} kullanıcısının öne çıkan hikayeleri bulunamadı veya özel hesap olabilir",
+        "highlight_selection": "\n📌 Öne çıkan hikayeler:",
+        "highlight_item": "  {0}. {1} ({2} hikaye)",
+        "highlight_choice": "\nİndirmek istediğiniz öne çıkan hikayeyi seçin (0: İptal): ",
+        "highlight_all": "  A. Tüm öne çıkan hikayeleri indir",
+        "downloading_highlight": "\n⏳ '{0}' öne çıkan hikayesi indiriliyor...",
+        "highlight_success": "✅ '{0}' öne çıkan hikayesi indirildi ({1} hikaye)",
+        "highlight_saved": "\nÖne çıkan hikayeler '{0}' klasörüne kaydedildi",
+        "highlight_error": "❌ Öne çıkan hikayeler indirilirken bir hata oluştu: {0}",
+        "highlight_cancel": "ℹ️ İşlem iptal edildi.",
     },
     "en": {
         "app_title": "📲 InstaStalker - Instagram Content Downloader Tool",
@@ -225,6 +238,19 @@ TRANSLATIONS = {
         "disabling_encryption": "⏳ Disabling cookie encryption...",
         "encryption_error": "🔒 Encryption error: {0}",
         "encryption_info": "🔒 Cookie encryption status: {0}",
+        "menu_10": "10. Download Highlight Stories",
+        "highlight_username_prompt": "Username for highlights to download: ",
+        "downloading_highlights": "\n⏳ Fetching highlight stories for user {0}...",
+        "no_highlights_found": "❌ Highlight stories for user {0} not found or account is private",
+        "highlight_selection": "\n📌 Highlight stories:",
+        "highlight_item": "  {0}. {1} ({2} stories)",
+        "highlight_choice": "\nSelect highlight to download (0: Cancel): ",
+        "highlight_all": "  A. Download all highlights",
+        "downloading_highlight": "\n⏳ Downloading highlight '{0}'...",
+        "highlight_success": "✅ Downloaded highlight '{0}' ({1} stories)",
+        "highlight_saved": "\nHighlight stories saved to '{0}' folder",
+        "highlight_error": "❌ Error downloading highlight stories: {0}",
+        "highlight_cancel": "ℹ️ Operation canceled.",
     }
 }
 
@@ -920,6 +946,197 @@ class InstaStalker:
             print(self._("post_error", str(e)))
             return False
 
+    def download_highlights(self, username):
+        """Belirtilen kullanıcının öne çıkan hikayelerini (highlights) indir."""
+        if not self.cookies:
+            print(self._("no_cookies"))
+            if not self.get_interactive_cookies():
+                return False
+        
+        try:
+            # Kullanıcı klasörünü oluştur
+            user_dir = self.content_types["stories"] / username / "highlights"
+            user_dir.mkdir(exist_ok=True, parents=True)
+            
+            # Öne çıkan hikayeleri al
+            print(self._("downloading_highlights", username))
+            
+            # Instagram'dan kullanıcının profil sayfasını çek
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(f"https://www.instagram.com/{username}/", headers=headers, cookies=self.cookies)
+            
+            if response.status_code != 200:
+                print(self._("no_highlights_found", username))
+                return False
+            
+            # Kullanıcı ID'sini bul
+            user_id_match = re.search(r'"user_id":"(\d+)"', response.text)
+            if not user_id_match:
+                print(self._("no_highlights_found", username))
+                return False
+            
+            user_id = user_id_match.group(1)
+            
+            # Highlights API'sine istek gönder
+            highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_related_profiles%22%3Afalse%7D"
+            
+            highlights_response = requests.get(highlights_url, headers=headers, cookies=self.cookies)
+            
+            if highlights_response.status_code != 200:
+                print(self._("no_highlights_found", username))
+                return False
+            
+            # Highlights verilerini ayrıştır
+            highlights_data = highlights_response.json()
+            highlights = highlights_data.get('data', {}).get('user', {}).get('edge_highlight_reels', {}).get('edges', [])
+            
+            if not highlights:
+                print(self._("no_highlights_found", username))
+                return False
+            
+            # Öne çıkan hikayeleri listele
+            print(self._("highlight_selection"))
+            
+            highlight_info = []
+            for i, highlight in enumerate(highlights, 1):
+                node = highlight.get('node', {})
+                title = node.get('title', f"Highlight-{i}")
+                highlight_id = node.get('id')
+                media_count = node.get('highlight_reel_count', 0)
+                
+                highlight_info.append({
+                    'title': title,
+                    'id': highlight_id,
+                    'count': media_count
+                })
+                
+                print(self._("highlight_item", i, title, media_count))
+            
+            print(self._("highlight_all"))
+            
+            # Kullanıcıdan hangi highlight'ı indirmek istediğini sor
+            choice = input(self._("highlight_choice")).strip()
+            
+            if choice == "0":
+                print(self._("highlight_cancel"))
+                return False
+            
+            # Tüm öne çıkan hikayeleri indir
+            if choice.lower() == "a":
+                all_success = True
+                for highlight in highlight_info:
+                    success = self._download_single_highlight(username, highlight, user_dir)
+                    all_success = all_success and success
+                return all_success
+            
+            # Seçilen öne çıkan hikayeyi indir
+            try:
+                choice_idx = int(choice) - 1
+                if 0 <= choice_idx < len(highlight_info):
+                    selected_highlight = highlight_info[choice_idx]
+                    return self._download_single_highlight(username, selected_highlight, user_dir)
+                else:
+                    print(self._("invalid_choice"))
+                    return False
+            except ValueError:
+                print(self._("invalid_choice"))
+                return False
+        
+        except Exception as e:
+            print(self._("highlight_error", str(e)))
+            return False
+
+    def _download_single_highlight(self, username, highlight, base_dir):
+        """Tek bir öne çıkan hikayeyi indir."""
+        title = highlight['title']
+        highlight_id = highlight['id']
+        
+        try:
+            # Highlight klasörünü oluştur
+            highlight_dir = base_dir / title.replace("/", "_").replace("\\", "_")
+            highlight_dir.mkdir(exist_ok=True)
+            
+            print(self._("downloading_highlight", title))
+            
+            # Highlight içeriğini al
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            highlight_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22tag_names%22%3A%5B%5D%2C%22location_ids%22%3A%5B%5D%2C%22highlight_reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22precomposed_overlay%22%3Afalse%2C%22show_story_viewer_list%22%3Atrue%2C%22story_viewer_fetch_count%22%3A50%2C%22story_viewer_cursor%22%3A%22%22%2C%22stories_video_dash_manifest%22%3Afalse%7D"
+            
+            highlight_response = requests.get(highlight_url, headers=headers, cookies=self.cookies)
+            
+            if highlight_response.status_code != 200:
+                print(self._("no_highlights_found", username))
+                return False
+            
+            # Highlight verisini ayrıştır
+            highlight_data = highlight_response.json()
+            reels = highlight_data.get('data', {}).get('reels_media', [])
+            
+            if not reels:
+                print(self._("no_highlights_found", username))
+                return False
+            
+            # Highlight medyalarını indir
+            downloaded_count = 0
+            for reel in reels:
+                items = reel.get('items', [])
+                for item in items:
+                    is_video = item.get('is_video', False)
+                    
+                    if is_video:
+                        # Video indir
+                        video_url = item.get('video_resources', [{}])[0].get('src')
+                        if not video_url:
+                            continue
+                        
+                        media_id = item.get('id')
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        video_filename = f"{username}_highlight_{title}_{media_id}_{timestamp}.mp4"
+                        video_path = highlight_dir / video_filename
+                        
+                        # İndir
+                        video_response = requests.get(video_url, stream=True)
+                        with open(video_path, 'wb') as f:
+                            for chunk in video_response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                        
+                        downloaded_count += 1
+                    else:
+                        # Resim indir
+                        display_resources = item.get('display_resources', [])
+                        if not display_resources:
+                            continue
+                        
+                        # En yüksek çözünürlüklü resmi al
+                        sorted_resources = sorted(display_resources, key=lambda x: x.get('config_width', 0), reverse=True)
+                        image_url = sorted_resources[0].get('src')
+                        
+                        media_id = item.get('id')
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        image_filename = f"{username}_highlight_{title}_{media_id}_{timestamp}.jpg"
+                        image_path = highlight_dir / image_filename
+                        
+                        # İndir
+                        image_response = requests.get(image_url)
+                        with open(image_path, 'wb') as f:
+                            f.write(image_response.content)
+                        
+                        downloaded_count += 1
+            
+            print(self._("highlight_success", title, downloaded_count))
+            print(self._("highlight_saved", highlight_dir))
+            return True
+        
+        except Exception as e:
+            print(self._("highlight_error", str(e)))
+            return False
+
 
 # InstaFeed sınıfını tanımla - Kullanıcının son gönderilerini almak için
 class InstaFeed:
@@ -1030,6 +1247,7 @@ def main():
             print(stalker._("menu_7"))
             print(stalker._("menu_8"))  # Dil değiştirme
             print(stalker._("menu_9"))  # Şifreleme aç/kapat
+            print(stalker._("menu_10"))  # Öne çıkan hikayeleri indir
             print(stalker._("menu_0"))
             
             choice = input(stalker._("menu_choice"))
@@ -1081,6 +1299,11 @@ def main():
             elif choice == "9":
                 # Şifreleme aç/kapat
                 stalker.toggle_encryption()
+                
+            elif choice == "10":
+                # Öne çıkan hikayeleri indir
+                username = input(stalker._("highlight_username_prompt"))
+                stalker.download_highlights(username)
             
             elif choice == "0":
                 # Çıkış
