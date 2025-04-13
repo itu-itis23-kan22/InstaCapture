@@ -114,6 +114,9 @@ class InstaStalkGUI(tk.Tk):
         # Ana uygulama nesnesi oluştur
         self.stalker = InstaStalker()
         
+        # Current text widget for update_result_text
+        self.current_text_widget = None
+        
         # Ana pencere ayarları
         self.title("InstaStalker - Instagram İçerik İndirme Aracı")
         self.geometry("800x600")
@@ -462,22 +465,31 @@ class InstaStalkGUI(tk.Tk):
     
     def update_result_text(self, text, append=True, clear_first=False):
         """Thread-safe way to update result text widget"""
+        if self.current_text_widget is None:
+            print("WARNING: current_text_widget is not set. Using the first tab's text widget.")
+            # Default to story_result_text if not set
+            self.current_text_widget = self.story_result_text
+            
         def _update():
             if clear_first:
-                self.result_text.delete(1.0, tk.END)
+                self.current_text_widget.config(state=tk.NORMAL)
+                self.current_text_widget.delete(1.0, tk.END)
+                self.current_text_widget.config(state=tk.DISABLED)
                 
+            self.current_text_widget.config(state=tk.NORMAL)
             if append:
-                current_text = self.result_text.get(1.0, tk.END)
+                current_text = self.current_text_widget.get(1.0, tk.END)
                 if current_text and not current_text.strip() == "":
-                    self.result_text.insert(tk.END, f"\n{text}")
+                    self.current_text_widget.insert(tk.END, f"\n{text}")
                 else:
-                    self.result_text.insert(tk.END, text)
+                    self.current_text_widget.insert(tk.END, text)
             else:
-                self.result_text.delete(1.0, tk.END)
-                self.result_text.insert(tk.END, text)
+                self.current_text_widget.delete(1.0, tk.END)
+                self.current_text_widget.insert(tk.END, text)
             
             # Auto-scroll to the end
-            self.result_text.see(tk.END)
+            self.current_text_widget.see(tk.END)
+            self.current_text_widget.config(state=tk.DISABLED)
         
         if is_main_thread():
             _update()
@@ -526,8 +538,11 @@ class InstaStalkGUI(tk.Tk):
             messagebox.showerror(self._("error"), self._("enter_username"))
             return
         
+        # Set current text widget
+        self.current_text_widget = self.story_result_text
+        
         # Clear previous results and update status
-        self.update_result_text("", append=False)
+        self.update_result_text_widget(self.story_result_text, "", append=False)
         self.update_status(f"{self._('downloading_stories')} {username}...")
         
         # Start download in a separate thread
@@ -542,7 +557,7 @@ class InstaStalkGUI(tk.Tk):
             cookies = self.stalker.get_cookies_dict()
             if not cookies:
                 self.update_status(self._("cookies_required"))
-                self.update_result_text(f"⚠️ {self._('cookies_required_explanation')}")
+                self.update_result_text_widget(self.current_text_widget, f"⚠️ {self._('cookies_required_explanation')}")
                 return
             
             # Get the user ID
@@ -550,7 +565,7 @@ class InstaStalkGUI(tk.Tk):
             
             if not user_id:
                 self.update_status(self._("user_id_not_found"))
-                self.update_result_text(f"❌ {self._('could_not_find_user_id').format(username=username)}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('could_not_find_user_id').format(username=username)}")
                 return
                 
             # Fetch stories
@@ -568,14 +583,14 @@ class InstaStalkGUI(tk.Tk):
                 # Check if there are any stories
                 if not story_response.get("reels_media"):
                     self.update_status(f"{self._('no_stories')} {username}")
-                    self.update_result_text(f"ℹ️ {self._('no_active_stories').format(username=username)}")
+                    self.update_result_text_widget(self.current_text_widget, f"ℹ️ {self._('no_active_stories').format(username=username)}")
                     return
                 
                 stories = story_response["reels_media"][0]["items"]
                 story_count = len(stories)
                 
                 self.update_status(f"{self._('found_stories').format(count=story_count, username=username)}")
-                self.update_result_text(f"🔍 {self._('found_stories').format(count=story_count, username=username)}")
+                self.update_result_text_widget(self.current_text_widget, f"🔍 {self._('found_stories').format(count=story_count, username=username)}")
                 
                 # Download each story
                 for i, story in enumerate(stories, 1):
@@ -614,25 +629,25 @@ class InstaStalkGUI(tk.Tk):
                         
                         media_type = self._("image")
                     
-                    self.update_result_text(f"✅ {self._('downloaded_story').format(number=i, type=media_type)}")
+                    self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_story').format(number=i, type=media_type)}")
                 
                 elapsed_time = time.time() - start_time
                 self.update_status(f"{self._('download_complete')} ({story_count} {self._('stories')} - {elapsed_time:.1f}s)")
-                self.update_result_text(f"\n📁 {self._('saved_in').format(path=save_dir)}")
+                self.update_result_text_widget(self.current_text_widget, f"\n📁 {self._('saved_in').format(path=save_dir)}")
                 
             except requests.RequestException as e:
                 self.update_status(f"{self._('network_error')}: {e}")
-                self.update_result_text(f"❌ {self._('network_error')}: {e}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('network_error')}: {e}")
             except json.JSONDecodeError:
                 self.update_status(self._("invalid_response"))
-                self.update_result_text(f"❌ {self._('invalid_response_explanation')}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('invalid_response_explanation')}")
             except KeyError as e:
                 self.update_status(f"{self._('format_error')}: {e}")
-                self.update_result_text(f"❌ {self._('format_error_explanation')}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('format_error_explanation')}")
                 
         except Exception as e:
             self.update_status(f"{self._('error')}: {e}")
-            self.update_result_text(f"❌ {self._('unexpected_error')}: {str(e)}")
+            self.update_result_text_widget(self.current_text_widget, f"❌ {self._('unexpected_error')}: {str(e)}")
             # Log more detailed error information for debugging
             import traceback
             print(f"Error in download_stories: {traceback.format_exc()}")
@@ -655,8 +670,11 @@ class InstaStalkGUI(tk.Tk):
         if limit is None:
             return  # User cancelled the dialog
         
+        # Set current text widget
+        self.current_text_widget = self.post_result_text
+        
         # Clear previous results and update status
-        self.update_result_text("", append=False)
+        self.update_result_text_widget(self.post_result_text, "", append=False)
         self.update_status(f"{self._('downloading_posts')} {username} ({limit} posts)...")
         
         # Start download in a separate thread
@@ -671,7 +689,7 @@ class InstaStalkGUI(tk.Tk):
             cookies = self.stalker.get_cookies_dict()
             if not cookies:
                 self.update_status(self._("cookies_required"))
-                self.update_result_text(f"⚠️ {self._('cookies_required_explanation')}")
+                self.update_result_text_widget(self.current_text_widget, f"⚠️ {self._('cookies_required_explanation')}")
                 return
                 
             # Get the user ID (optional for posts but useful for better queries)
@@ -689,12 +707,12 @@ class InstaStalkGUI(tk.Tk):
                 
                 if not posts:
                     self.update_status(f"{self._('no_posts')} {username}")
-                    self.update_result_text(f"ℹ️ {self._('no_posts_found').format(username=username)}")
+                    self.update_result_text_widget(self.current_text_widget, f"ℹ️ {self._('no_posts_found').format(username=username)}")
                     return
                 
                 post_count = len(posts)
                 self.update_status(f"{self._('found_posts').format(count=post_count, username=username)}")
-                self.update_result_text(f"🔍 {self._('found_posts').format(count=post_count, username=username)}")
+                self.update_result_text_widget(self.current_text_widget, f"🔍 {self._('found_posts').format(count=post_count, username=username)}")
                 
                 # Track downloaded media count
                 total_media = 0
@@ -738,7 +756,7 @@ class InstaStalkGUI(tk.Tk):
                                 media_type = self._("image")
                             
                             total_media += 1
-                            self.update_result_text(f"✅ {self._('downloaded_carousel_item').format(post=i, item=j, type=media_type)}")
+                            self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_carousel_item').format(post=i, item=j, type=media_type)}")
                     
                     elif post.get("video_versions"):
                         # Single video post
@@ -753,7 +771,7 @@ class InstaStalkGUI(tk.Tk):
                                     f.write(chunk)
                         
                         total_media += 1
-                        self.update_result_text(f"✅ {self._('downloaded_post').format(number=i, type=self._('video'))}")
+                        self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_post').format(number=i, type=self._('video'))}")
                     
                     else:
                         # Single image post
@@ -767,25 +785,25 @@ class InstaStalkGUI(tk.Tk):
                                 f.write(r.content)
                         
                         total_media += 1
-                        self.update_result_text(f"✅ {self._('downloaded_post').format(number=i, type=self._('image'))}")
+                        self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_post').format(number=i, type=self._('image'))}")
                 
                 elapsed_time = time.time() - start_time
                 self.update_status(f"{self._('download_complete')} ({total_media} {self._('media')} - {elapsed_time:.1f}s)")
-                self.update_result_text(f"\n📁 {self._('saved_in').format(path=save_dir)}")
+                self.update_result_text_widget(self.current_text_widget, f"\n📁 {self._('saved_in').format(path=save_dir)}")
                 
             except requests.RequestException as e:
                 self.update_status(f"{self._('network_error')}: {e}")
-                self.update_result_text(f"❌ {self._('network_error')}: {e}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('network_error')}: {e}")
             except json.JSONDecodeError:
                 self.update_status(self._("invalid_response"))
-                self.update_result_text(f"❌ {self._('invalid_response_explanation')}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('invalid_response_explanation')}")
             except KeyError as e:
                 self.update_status(f"{self._('format_error')}: {e}")
-                self.update_result_text(f"❌ {self._('format_error_explanation')}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('format_error_explanation')}")
                 
         except Exception as e:
             self.update_status(f"{self._('error')}: {e}")
-            self.update_result_text(f"❌ {self._('unexpected_error')}: {str(e)}")
+            self.update_result_text_widget(self.current_text_widget, f"❌ {self._('unexpected_error')}: {str(e)}")
             # Log more detailed error information for debugging
             import traceback
             print(f"Error in download_posts: {traceback.format_exc()}")
@@ -1715,6 +1733,31 @@ class InstaStalkGUI(tk.Tk):
             return result, output
         finally:
             sys.stdout = old_stdout
+
+    def download_reels(self):
+        """Download reels of given username"""
+        username = self.username_entry3.get().strip()
+        if not username:
+            messagebox.showerror(self._("error"), self._("enter_username"))
+            return
+        
+        limit = simpledialog.askinteger(
+            self._("reel_limit"), 
+            self._("reel_limit_prompt"),
+            initialvalue=5,
+            minvalue=1,
+            maxvalue=50
+        )
+        
+        if limit is None:
+            return  # User cancelled the dialog
+        
+        # Set current text widget
+        self.current_text_widget = self.reel_result_text
+        
+        # Clear previous results and update status
+        self.update_result_text("", append=False)
+        self.update_status(f"{self._('downloading_reels')} {username} ({limit} reels)...")
 
 
 def main():
