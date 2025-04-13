@@ -1678,6 +1678,44 @@ class InstaStalkGUI(tk.Tk):
         )
         return user_id
 
+    def update_log(self, text):
+        """Log sekmesine yeni satır ekle"""
+        def _update():
+            self.log_text.config(state=tk.NORMAL)
+            self.log_text.insert(tk.END, f"{text}\n")
+            self.log_text.see(tk.END)
+            self.log_text.config(state=tk.DISABLED)
+        
+        if is_main_thread():
+            _update()
+        else:
+            self.after(0, _update)
+    
+    def clear_log(self):
+        """Log sekmesinin içeriğini temizle"""
+        def _update():
+            self.log_text.config(state=tk.NORMAL)
+            self.log_text.delete(1.0, tk.END)
+            self.log_text.config(state=tk.DISABLED)
+        
+        if is_main_thread():
+            _update()
+        else:
+            self.after(0, _update)
+    
+    def capture_output(self, func):
+        """Capture output of a function and return it as a string"""
+        import io
+        import sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            result = func()
+            output = sys.stdout.getvalue()
+            return result, output
+        finally:
+            sys.stdout = old_stdout
+
 
 def main():
     """Ana fonksiyon - GUI uygulamasını başlat."""
