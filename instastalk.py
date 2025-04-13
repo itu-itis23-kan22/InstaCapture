@@ -1467,18 +1467,18 @@ def main():
             print(stalker._("app_title"))
             print("="*50)
             
-            print("\n" + stalker._("main_menu"))
-            print(stalker._("menu_1"))
-            print(stalker._("menu_2"))
-            print(stalker._("menu_3"))
-            print(stalker._("menu_4"))
-            print(stalker._("menu_5"))
-            print(stalker._("menu_6"))
-            print(stalker._("menu_7"))
-            print(stalker._("menu_8"))  # Dil değiştirme
-            print(stalker._("menu_9"))  # Şifreleme aç/kapat
-            print(stalker._("menu_10"))  # Öne çıkan hikayeleri indir
-            print(stalker._("menu_0"))
+            print("\n" + stalker._("app_name"))
+            print("1. " + stalker._("menu_download_story"))
+            print("2. " + stalker._("menu_download_post"))
+            print("3. " + stalker._("menu_download_profile"))
+            print("4. " + stalker._("menu_set_cookies"))
+            print("5. " + stalker._("menu_list_downloads"))
+            print("6. " + stalker._("menu_batch_download"))
+            print("7. " + stalker._("menu_clean"))
+            print("8. " + stalker._("menu_lang"))
+            print("9. " + stalker._("menu_9"))
+            print("10. " + stalker._("menu_10"))
+            print("0. " + stalker._("menu_exit"))
             
             choice = input(stalker._("menu_choice"))
             
