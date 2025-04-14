@@ -829,7 +829,7 @@ class InstaStalkGUI(tk.Tk):
             self.update_status(self._("downloading_profile", username))
             
             # Çıktıyı yakalamak için işlevi çağır
-            result, output = self.capture_output(lambda: self.stalker.download_profile_picture(username))
+            result, output = self.capture_output(lambda: self.stalker.download_profile_pic(username))
             
             # Çıktıyı log'a yazdır
             for line in output.split('\n'):
@@ -840,7 +840,9 @@ class InstaStalkGUI(tk.Tk):
             image_path = None
             for line in output.split('\n'):
                 if "saved to" in line:
-                    image_path = line.split("'")[1]
+                    parts = line.split("'")
+                    if len(parts) > 1:
+                        image_path = parts[1]
                     break
             
             if image_path and Path(image_path).exists():
@@ -1727,10 +1729,16 @@ class InstaStalkGUI(tk.Tk):
         import sys
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
+        result = None
+        output = ""
         try:
             result = func()
             output = sys.stdout.getvalue()
             return result, output
+        except Exception as e:
+            output = sys.stdout.getvalue()
+            print(f"Error in capture_output: {str(e)}")
+            return False, output + f"\nError: {str(e)}"
         finally:
             sys.stdout = old_stdout
 
