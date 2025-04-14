@@ -900,8 +900,27 @@ class InstaStalker:
                                 # Alternatif pattern
                                 username_match = re.search(r'instagram\.com/([^/]+)/(?:p|reel)/', response.text)
                             
+                            extracted_username = None
                             if username_match:
-                                username = username_match.group(1)
+                                extracted_username = username_match.group(1)
+                                # "p" ve "reel" gibi path parçalarını username olarak kabul etme
+                                if extracted_username in ["p", "reel", "tv"]:
+                                    # Gerçek kullanıcı adını bulmak için farklı yöntemler dene
+                                    # Instagram'ın yeni markup yapısında kullanıcı adı bulmayı dene
+                                    username_alt_match = re.search(r'<meta property="og:title" content="([^"]+) on Instagram:', response.text)
+                                    if username_alt_match:
+                                        extracted_username = username_alt_match.group(1)
+                                    else:
+                                        # Farklı bir meta etiketi dene
+                                        username_alt_match = re.search(r'<meta property="og:description" content="([^"]+) on Instagram:', response.text)
+                                        if username_alt_match:
+                                            extracted_username = username_alt_match.group(1)
+                                    
+                                    # Hala bulunamadıysa, genel bir ad ata
+                                    if extracted_username in ["p", "reel", "tv"]:
+                                        extracted_username = "instagram_user"
+                                
+                                username = extracted_username
                                 print(f"✅ Kullanıcı adı meta etiketlerinden alındı: {username}")
                                 
                                 # Görsel URL'sini al
@@ -927,6 +946,18 @@ class InstaStalker:
                                         # Video indir
                                         video_url = video_url_match.group(1)
                                         video_response = requests.get(video_url, stream=True)
+                                        
+                                        # İstek başarılı mı kontrol et
+                                        if video_response.status_code != 200:
+                                            print(f"❌ Video indirme başarısız. HTTP kodu: {video_response.status_code}")
+                                            return False
+                                            
+                                        # Medya boyutu çok küçük mü kontrol et - muhtemel hata/koruma sayfası
+                                        content_length = int(video_response.headers.get('Content-Length', 0))
+                                        if content_length < 10000:  # 10KB'dan küçükse şüpheli
+                                            print(f"❌ Video içeriği çok küçük ({content_length} byte). Muhtemelen geçersiz.")
+                                            return False
+                                            
                                         video_path = post_dir / f"{post_code}.mp4"
                                         with open(video_path, 'wb') as f:
                                             for chunk in video_response.iter_content(chunk_size=8192):
@@ -937,6 +968,24 @@ class InstaStalker:
                                         # Resim indir
                                         image_url = image_url_match.group(1)
                                         image_response = requests.get(image_url)
+                                        
+                                        # İstek başarılı mı kontrol et
+                                        if image_response.status_code != 200:
+                                            print(f"❌ Resim indirme başarısız. HTTP kodu: {image_response.status_code}")
+                                            return False
+                                            
+                                        # Medya boyutu çok küçük mü kontrol et - muhtemel hata/koruma sayfası
+                                        content_length = int(image_response.headers.get('Content-Length', 0))
+                                        if content_length < 5000:  # 5KB'dan küçükse şüpheli
+                                            print(f"❌ Resim içeriği çok küçük ({content_length} byte). Muhtemelen geçersiz.")
+                                            return False
+                                        
+                                        # Gerçekten bir resim mi kontrol et (ilk birkaç baytı kontrol)
+                                        content_type = image_response.headers.get('Content-Type', '')
+                                        if not content_type.startswith('image/'):
+                                            print(f"❌ İndirilen içerik bir resim değil. Content-Type: {content_type}")
+                                            return False
+                                        
                                         image_path = post_dir / f"{post_code}.jpg"
                                         with open(image_path, 'wb') as f:
                                             f.write(image_response.content)
