@@ -566,6 +566,12 @@ class InstaStalker:
             # InstaStory nesnesini oluştur
             story_obj = InstaStory()
             story_obj.cookies = self.cookies
+            
+            # InstaCapture kütüphanesi için ilgili diğer attributes
+            # cookies'i farklı bir formatta (dict olarak) bekliyorsa bunu da sağlayalım
+            if hasattr(story_obj, 'cookies_dict'):
+                story_obj.cookies_dict = self.cookies
+            
             story_obj.username = username
             story_obj.folder_path = str(temp_dir)
             
@@ -681,6 +687,13 @@ class InstaStalker:
             
             # InstaPost nesnesi oluştur
             post_obj = InstaPost()
+            post_obj.cookies = self.cookies
+            
+            # InstaCapture kütüphanesi için ilgili diğer attributes
+            # cookies'i farklı bir formatta (dict olarak) bekliyorsa bunu da sağlayalım
+            if hasattr(post_obj, 'cookies_dict'):
+                post_obj.cookies_dict = self.cookies
+            
             post_obj.reel_id = post_code
             post_obj.folder_path = str(temp_dir)
             
@@ -1386,6 +1399,12 @@ class InstaStalker:
             # Create InstaStory object
             story_obj = InstaStory()
             story_obj.cookies = self.cookies
+            
+            # InstaCapture kütüphanesi için ilgili diğer attributes
+            # cookies'i farklı bir formatta (dict olarak) bekliyorsa bunu da sağlayalım
+            if hasattr(story_obj, 'cookies_dict'):
+                story_obj.cookies_dict = self.cookies
+            
             story_obj.user_id = user_id
             
             # Create temporary directory
@@ -1417,6 +1436,12 @@ class InstaStalker:
             # Create InstaFeed object for getting posts
             feed_obj = InstaFeed()
             feed_obj.cookies = self.cookies
+            
+            # InstaCapture kütüphanesi için ilgili diğer attributes
+            # cookies'i farklı bir formatta (dict olarak) bekliyorsa bunu da sağlayalım
+            if hasattr(feed_obj, 'cookies_dict'):
+                feed_obj.cookies_dict = self.cookies
+            
             feed_obj.username = username
             feed_obj.limit = limit
             
