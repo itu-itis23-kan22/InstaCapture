@@ -722,19 +722,31 @@ class InstaStalker:
             try:
                 # Doğrudan medya sayfasını getir
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.5",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
                     "Referer": "https://www.instagram.com/",
                     "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "same-origin",
+                    "Pragma": "no-cache",
+                    "Cache-Control": "no-cache",
                 }
                 
-                # Önce post sayfasını çekelim
+                # Önce post sayfasını çekelim (deneme Reel URL formatı)
                 post_url = f"https://www.instagram.com/p/{post_code}/"
                 response = requests.get(post_url, headers=headers, cookies=self.cookies)
                 
                 if response.status_code == 200:
                     print("✅ Post sayfası başarıyla alındı, medya aranıyor...")
+                else:
+                    # Alternatif URL formatı dene (reel)
+                    post_url = f"https://www.instagram.com/reel/{post_code}/"
+                    response = requests.get(post_url, headers=headers, cookies=self.cookies)
+                    if response.status_code == 200:
+                        print("✅ Reel sayfası başarıyla alındı, medya aranıyor...")
                 
                 # API'den alınamayan postlar için yedek mekanizma ekle
                 # Bu kod kısmı sadece instacapture kütüphanesi başarısız olursa çalışacak
@@ -748,107 +760,197 @@ class InstaStalker:
             if not result:
                 print("⚠️ InstaCapture kütüphanesi ile post indirilemedi. Alternatif yöntem deneniyor...")
                 try:
-                    # JSON veri yapısını çıkarmak için regex kullan
+                    # Modern Instagram web uygulaması farklı veri katmanları kullanır:
+                    # 1. window._sharedData (klasik format)
+                    # 2. window.__additionalDataLoaded (yeni format)
+                    # 3. Dahili React veri yapıları
+                    # 4. Meta etiketleri
+
+                    # 1. Klasik _sharedData formatı
                     matches = re.findall(r'window\._sharedData\s*=\s*({.*?});</script>', response.text)
                     post_data = None
                     username = None
                     
                     if matches:
-                        json_data = json.loads(matches[0])
-                        # Post verilerini çıkar
-                        post_data = json_data.get('entry_data', {}).get('PostPage', [{}])[0].get('graphql', {}).get('shortcode_media', {})
-                        
-                        if post_data:
-                            # Kullanıcı adını al
-                            username = post_data.get('owner', {}).get('username')
+                        try:
+                            json_data = json.loads(matches[0])
+                            # Post verilerini çıkar
+                            post_data = json_data.get('entry_data', {}).get('PostPage', [{}])[0].get('graphql', {}).get('shortcode_media', {})
                             
-                            if not username:
-                                print("❌ Post sahibinin kullanıcı adı bulunamadı.")
-                                return False
-                    
-                    # Yeni format: window.__additionalDataLoaded uygulaması
-                    if not post_data:
-                        matches2 = re.findall(r'window\.__additionalDataLoaded\s*\(\s*[\'"]post[\'"],\s*({.*?})\);</script>', response.text)
-                        if matches2:
-                            try:
-                                additional_data = json.loads(matches2[0])
-                                post_data = additional_data.get('graphql', {}).get('shortcode_media', {})
+                            if post_data:
+                                # Kullanıcı adını al
+                                username = post_data.get('owner', {}).get('username')
+                                print(f"✅ Post verisi _sharedData formatından alındı: {username}")
                                 
-                                if post_data:
-                                    username = post_data.get('owner', {}).get('username')
-                                    print(f"✅ Post verisi additionalDataLoaded formatından alındı: {username}")
-                            except Exception as e:
-                                print(f"⚠️ additionalDataLoaded ayrıştırma hatası: {str(e)}")
+                                if not username:
+                                    print("❌ Post sahibinin kullanıcı adı bulunamadı.")
+                        except Exception as e:
+                            print(f"⚠️ _sharedData ayrıştırma hatası: {str(e)}")
                     
-                    # Yeni format: require("gkx") içindeki veri
+                    # 2. Daha yeni __additionalDataLoaded formatı
                     if not post_data:
-                        require_match = re.search(r'require\(\["gkx"\]\)\.gkx[^{]+({.*})', response.text)
-                        if require_match:
-                            try:
-                                gkx_data = json.loads(require_match.group(1))
-                                # Buradaki veri yapısı farklı olabilir, araştırma yapılmalı
-                                print(f"✅ Require GKX formatı algılandı, veri araştırılıyor...")
-                                
-                                # Instagram API değişikliklerine göre burayı güncelle
-                            except Exception as e:
-                                print(f"⚠️ require gkx ayrıştırma hatası: {str(e)}")
+                        # Farklı varyasyonları dene - 'post' veya 'PostPage'
+                        patterns = [
+                            r'window\.__additionalDataLoaded\s*\(\s*[\'"]post[\'"],\s*({.*?})\);</script>',
+                            r'window\.__additionalDataLoaded\s*\(\s*[\'"]PostPage[\'"],\s*({.*?})\);</script>',
+                            r'window\.__additionalDataLoaded\s*\(\s*[\'"]p/[^\'\"]+[\'"],\s*({.*?})\);</script>'
+                        ]
+                        
+                        for pattern in patterns:
+                            matches2 = re.findall(pattern, response.text)
+                            if matches2:
+                                try:
+                                    additional_data = json.loads(matches2[0])
+                                    # Farklı veri yollarını dene
+                                    if 'graphql' in additional_data:
+                                        post_data = additional_data.get('graphql', {}).get('shortcode_media', {})
+                                    elif 'items' in additional_data and len(additional_data['items']) > 0:
+                                        post_data = additional_data['items'][0]
+                                    
+                                    if post_data:
+                                        # Farklı yollardan kullanıcı adını al
+                                        if 'owner' in post_data:
+                                            username = post_data.get('owner', {}).get('username')
+                                        elif 'user' in post_data:
+                                            username = post_data.get('user', {}).get('username')
+                                        
+                                        print(f"✅ Post verisi additionalDataLoaded formatından alındı: {username}")
+                                        break
+                                except Exception as e:
+                                    print(f"⚠️ additionalDataLoaded ayrıştırma hatası: {str(e)}")
                     
-                    # Instagram özelleştirilmiş React önbelleği formatı
+                    # 3. Yeni format: React yapılarındaki veri
                     if not post_data:
-                        react_match = re.search(r'<script type="application/json" data-sjs>[^<]*({"require":\[.*?\]})</script>', response.text)
-                        if react_match:
-                            try:
-                                react_data = json.loads(react_match.group(1))
-                                # Yeni React veri yapısını araştır
-                                print(f"✅ React veri formatı algılandı, veri araştırılıyor...")
-                                
-                                # Instagram API değişikliklerine göre burayı güncelle
-                            except Exception as e:
-                                print(f"⚠️ React veri ayrıştırma hatası: {str(e)}")
+                        # Instagram React yapısının farklı varyasyonları
+                        react_patterns = [
+                            r'<script type="application/json" data-sjs>[^<]*({"require":\[.*?\]})</script>',
+                            r'<script type="application/json"[^>]*>({".*?"props":.*?})</script>',
+                            r'<script>window\.__bufferData\s*=\s*({.*?});</script>',
+                            r'<script type="application/json" id="server-app-state">(.*?)</script>'
+                        ]
+                        
+                        for pattern in react_patterns:
+                            react_match = re.search(pattern, response.text, re.DOTALL)
+                            if react_match:
+                                try:
+                                    react_data = json.loads(react_match.group(1))
+                                    print(f"✅ React veri formatı algılandı, veri araştırılıyor...")
+                                    
+                                    # React yapısından medya bilgilerini çıkarmaya çalış
+                                    # Mevcut yapıda kesin bir path olmadığı için JSON'ı tarayarak arıyoruz
+                                    
+                                    # JSON içinde kullanıcı adı arama fonksiyonu
+                                    def find_username_in_json(json_obj):
+                                        if isinstance(json_obj, dict):
+                                            if 'username' in json_obj:
+                                                return json_obj.get('username')
+                                            
+                                            for key, value in json_obj.items():
+                                                result = find_username_in_json(value)
+                                                if result:
+                                                    return result
+                                        elif isinstance(json_obj, list):
+                                            for item in json_obj:
+                                                result = find_username_in_json(item)
+                                                if result:
+                                                    return result
+                                        return None
+                                    
+                                    # JSON içinde medya bilgisi arama fonksiyonu
+                                    def find_media_in_json(json_obj):
+                                        if isinstance(json_obj, dict):
+                                            # Medya verileri içeren anahtar kontrolleri
+                                            if ('shortcode_media' in json_obj or 
+                                                'video_url' in json_obj or 
+                                                'display_url' in json_obj or
+                                                'is_video' in json_obj):
+                                                return json_obj
+                                            
+                                            for key, value in json_obj.items():
+                                                result = find_media_in_json(value)
+                                                if result:
+                                                    return result
+                                        elif isinstance(json_obj, list):
+                                            for item in json_obj:
+                                                result = find_media_in_json(item)
+                                                if result:
+                                                    return result
+                                        return None
+                                    
+                                    # Veri içerisinde kullanıcı adını ara
+                                    username = find_username_in_json(react_data)
+                                    if username:
+                                        print(f"✅ React verilerinden kullanıcı adı bulundu: {username}")
+                                    
+                                    # Medya verilerini ara
+                                    media_data = find_media_in_json(react_data)
+                                    if media_data:
+                                        print(f"✅ React verilerinden medya bilgileri bulundu")
+                                        post_data = media_data
+                                    
+                                except Exception as e:
+                                    print(f"⚠️ React veri ayrıştırma hatası: {str(e)}")
                     
-                    # Instagram'ın HTML meta etiketlerindeki verileri al (basit ama etkili bir yöntem)
-                    if not post_data:
+                    # 4. Meta etiketlerinden veri çıkarma (son çare)
+                    if not post_data or not username:
                         try:
                             # Kullanıcı adını meta etiketlerinden al
                             username_match = re.search(r'<meta property="og:url" content="https://www.instagram.com/([^/]+)/[^"]+"', response.text)
+                            if not username_match:
+                                # Alternatif pattern
+                                username_match = re.search(r'instagram\.com/([^/]+)/(?:p|reel)/', response.text)
+                            
                             if username_match:
                                 username = username_match.group(1)
                                 print(f"✅ Kullanıcı adı meta etiketlerinden alındı: {username}")
                                 
                                 # Görsel URL'sini al
                                 image_url_match = re.search(r'<meta property="og:image" content="([^"]+)"', response.text)
-                                if image_url_match:
-                                    image_url = image_url_match.group(1)
-                                    
-                                    # Geçici sonuç oluştur
-                                    result = {
-                                        username: {
-                                            'Media Data': [{'is_video': False}]
-                                        }
-                                    }
-                                    
+                                video_url_match = re.search(r'<meta property="og:video" content="([^"]+)"', response.text)
+                                is_video = bool(video_url_match)
+                                
+                                if image_url_match or video_url_match:
                                     # Kullanıcı klasörünü ve post klasörünü oluştur
                                     user_dir = self.content_types["posts"] / username
                                     user_dir.mkdir(exist_ok=True)
                                     post_dir = user_dir / post_code
                                     post_dir.mkdir(exist_ok=True)
                                     
-                                    # Resmi indir
-                                    image_response = requests.get(image_url)
-                                    image_path = post_dir / f"{post_code}.jpg"
-                                    with open(image_path, 'wb') as f:
-                                        f.write(image_response.content)
-                                    print(f"✅ Resim meta etiketlerinden indirildi: {image_path}")
+                                    # Geçici sonuç oluştur
+                                    result = {
+                                        username: {
+                                            'Media Data': [{'is_video': is_video}]
+                                        }
+                                    }
+                                    
+                                    if is_video and video_url_match:
+                                        # Video indir
+                                        video_url = video_url_match.group(1)
+                                        video_response = requests.get(video_url, stream=True)
+                                        video_path = post_dir / f"{post_code}.mp4"
+                                        with open(video_path, 'wb') as f:
+                                            for chunk in video_response.iter_content(chunk_size=8192):
+                                                if chunk:
+                                                    f.write(chunk)
+                                        print(f"✅ Video meta etiketlerinden indirildi: {video_path}")
+                                    elif image_url_match:
+                                        # Resim indir
+                                        image_url = image_url_match.group(1)
+                                        image_response = requests.get(image_url)
+                                        image_path = post_dir / f"{post_code}.jpg"
+                                        with open(image_path, 'wb') as f:
+                                            f.write(image_response.content)
+                                        print(f"✅ Resim meta etiketlerinden indirildi: {image_path}")
                         except Exception as e:
                             print(f"⚠️ Meta etiket ayrıştırma hatası: {str(e)}")
                     
-                    if not post_data and not result:
+                    if not post_data and not result and not username:
                         print("❌ Post verisi hiçbir şekilde bulunamadı.")
                         print(self._("post_not_found"))
                         return False
                     
                     # Eğer post_data bulunduysa, indirme işlemini gerçekleştir
-                    if post_data:
+                    if post_data and username and not result:
                         # Kullanıcı klasörünü ve post klasörünü oluştur
                         user_dir = self.content_types["posts"] / username
                         user_dir.mkdir(exist_ok=True)
@@ -866,6 +968,12 @@ class InstaStalker:
                         if post_data.get('is_video', False):
                             # Video
                             video_url = post_data.get('video_url')
+                            if not video_url:
+                                # Alternatif video URL yollarını dene
+                                video_versions = post_data.get('video_versions', [])
+                                if video_versions and len(video_versions) > 0:
+                                    video_url = video_versions[0].get('url')
+                            
                             if video_url:
                                 video_response = requests.get(video_url, stream=True)
                                 video_path = post_dir / f"{post_code}.mp4"
@@ -876,32 +984,62 @@ class InstaStalker:
                                 print(f"✅ Video dosyası indirildi: {video_path}")
                         else:
                             # Resim
+                            # Farklı resim URL yollarını dene
+                            image_url = None
+                            
+                            # 1. display_resources
                             display_resources = post_data.get('display_resources', [])
                             if display_resources:
                                 # En yüksek çözünürlüklü resmi al
                                 display_resources.sort(key=lambda x: x.get('config_width', 0), reverse=True)
                                 image_url = display_resources[0].get('src')
-                                
-                                if not image_url:
-                                    image_url = post_data.get('display_url')
-                                
-                                if image_url:
-                                    image_response = requests.get(image_url)
-                                    image_path = post_dir / f"{post_code}.jpg"
-                                    with open(image_path, 'wb') as f:
-                                        f.write(image_response.content)
-                                    print(f"✅ Resim dosyası indirildi: {image_path}")
+                            
+                            # 2. display_url
+                            if not image_url:
+                                image_url = post_data.get('display_url')
+                            
+                            # 3. image_versions2
+                            if not image_url and 'image_versions2' in post_data:
+                                candidates = post_data.get('image_versions2', {}).get('candidates', [])
+                                if candidates and len(candidates) > 0:
+                                    # En yüksek çözünürlüklü resmi al
+                                    candidates.sort(key=lambda x: x.get('width', 0), reverse=True)
+                                    image_url = candidates[0].get('url')
+                            
+                            if image_url:
+                                image_response = requests.get(image_url)
+                                image_path = post_dir / f"{post_code}.jpg"
+                                with open(image_path, 'wb') as f:
+                                    f.write(image_response.content)
+                                print(f"✅ Resim dosyası indirildi: {image_path}")
                         
                         # Carousel post ise alt öğeleri indir
+                        carousel_media = None
+                        
+                        # 1. __typename kontrolü
                         if post_data.get('__typename') == 'GraphSidecar':
-                            edges = post_data.get('edge_sidecar_to_children', {}).get('edges', [])
-                            for i, edge in enumerate(edges, 1):
+                            carousel_media = post_data.get('edge_sidecar_to_children', {}).get('edges', [])
+                        
+                        # 2. carousel_media doğrudan kontrolü
+                        elif not carousel_media and 'carousel_media' in post_data:
+                            carousel_media = post_data.get('carousel_media', [])
+                            carousel_media = [{'node': item} for item in carousel_media]
+                        
+                        # Carousel medyalarını indir
+                        if carousel_media:
+                            for i, edge in enumerate(carousel_media, 1):
                                 node = edge.get('node', {})
                                 is_video = node.get('is_video', False)
                                 
                                 if is_video:
-                                    # Video
+                                    # Video URL'sini bul (farklı formatları dene)
                                     video_url = node.get('video_url')
+                                    
+                                    if not video_url:
+                                        video_versions = node.get('video_versions', [])
+                                        if video_versions and len(video_versions) > 0:
+                                            video_url = video_versions[0].get('url')
+                                    
                                     if video_url:
                                         video_response = requests.get(video_url, stream=True)
                                         video_path = post_dir / f"{post_code}_{i}.mp4"
@@ -911,21 +1049,32 @@ class InstaStalker:
                                                     f.write(chunk)
                                         print(f"✅ Carousel video {i} indirildi: {video_path}")
                                 else:
-                                    # Resim
+                                    # Resim URL'sini bul (farklı formatları dene)
+                                    image_url = None
+                                    
+                                    # 1. display_resources
                                     display_resources = node.get('display_resources', [])
                                     if display_resources:
                                         display_resources.sort(key=lambda x: x.get('config_width', 0), reverse=True)
                                         image_url = display_resources[0].get('src')
-                                        
-                                        if not image_url:
-                                            image_url = node.get('display_url')
-                                        
-                                        if image_url:
-                                            image_response = requests.get(image_url)
-                                            image_path = post_dir / f"{post_code}_{i}.jpg"
-                                            with open(image_path, 'wb') as f:
-                                                f.write(image_response.content)
-                                            print(f"✅ Carousel resim {i} indirildi: {image_path}")
+                                    
+                                    # 2. display_url
+                                    if not image_url:
+                                        image_url = node.get('display_url')
+                                    
+                                    # 3. image_versions2
+                                    if not image_url and 'image_versions2' in node:
+                                        candidates = node.get('image_versions2', {}).get('candidates', [])
+                                        if candidates and len(candidates) > 0:
+                                            candidates.sort(key=lambda x: x.get('width', 0), reverse=True)
+                                            image_url = candidates[0].get('url')
+                                    
+                                    if image_url:
+                                        image_response = requests.get(image_url)
+                                        image_path = post_dir / f"{post_code}_{i}.jpg"
+                                        with open(image_path, 'wb') as f:
+                                            f.write(image_response.content)
+                                        print(f"✅ Carousel resim {i} indirildi: {image_path}")
                     
                 except Exception as e:
                     print(f"❌ Alternatif indirme yöntemi hatası: {str(e)}")
