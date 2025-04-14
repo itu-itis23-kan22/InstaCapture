@@ -456,11 +456,6 @@ class InstaStalker:
             print(self._("cookies_not_saved", str(e)))
             return False
     
-    def toggle_encryption
-        """Get cookies as a dictionary.
-        This is a helper method needed in the GUI to check if cookies are set.
-        """
-        return self.cookies
     
     def toggle_encryption(self):
         """Çerez şifrelemeyi aç/kapat."""
