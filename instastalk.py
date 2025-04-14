@@ -1378,6 +1378,45 @@ class InstaStalker:
             print(self._("highlight_error", str(e)))
             return False
 
+    def get_stories(self, user_id):
+        """Get stories for a specific user ID.
+        This is a helper method for the GUI to fetch stories.
+        """
+        try:
+            # Create InstaStory object
+            story_obj = InstaStory()
+            story_obj.cookies = self.cookies
+            story_obj.user_id = user_id
+            
+            # Get the stories data
+            result = story_obj.get_stories_data()
+            return result
+        except Exception as e:
+            print(f"Error in get_stories: {str(e)}")
+            return {}
+    
+    def get_posts(self, username, limit=12):
+        """Get posts for a specific username with a limit.
+        This is a helper method for the GUI to fetch posts.
+        """
+        try:
+            # Create InstaFeed object for getting posts
+            feed_obj = InstaFeed()
+            feed_obj.cookies = self.cookies
+            feed_obj.username = username
+            feed_obj.limit = limit
+            
+            # Get feed data
+            results = feed_obj.feed_download()
+            
+            if results and username in results and results[username].get('Media Data'):
+                # Return the post data
+                return results[username].get('Media Data', [])
+            return []
+        except Exception as e:
+            print(f"Error in get_posts: {str(e)}")
+            return []
+
 
 # InstaFeed sınıfını tanımla - Kullanıcının son gönderilerini almak için
 class InstaFeed:
