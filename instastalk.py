@@ -664,15 +664,39 @@ class InstaStalker:
         try:
             # Post kodunu URL'den çıkar
             if "/" in post_url:
-                # URL formatındaysa, parçala
-                post_match = re.search(r'instagram\.com/(?:p|reel)/([^/?]+)', post_url)
+                # URL formatındaysa, farklı desenlerle eşleştirmeyi dene
+                post_match = re.search(r'instagram\.com/(?:p|reel|tv)/([^/?]+)', post_url)
                 if post_match:
                     post_code = post_match.group(1)
+                # Instagram kısa URL'leri için (instagram.com/p/CODE)
+                elif re.search(r'instagram\.com/p/([^/?]+)', post_url):
+                    post_code = re.search(r'instagram\.com/p/([^/?]+)', post_url).group(1)
+                # Reel kısa URL'leri için (instagram.com/reel/CODE)
+                elif re.search(r'instagram\.com/reel/([^/?]+)', post_url):
+                    post_code = re.search(r'instagram\.com/reel/([^/?]+)', post_url).group(1)
+                # IGTV URL'leri için (instagram.com/tv/CODE)
+                elif re.search(r'instagram\.com/tv/([^/?]+)', post_url):
+                    post_code = re.search(r'instagram\.com/tv/([^/?]+)', post_url).group(1)
+                # Mobil URL'ler için (instagram.com/reels/CODE)
+                elif re.search(r'instagram\.com/reels/([^/?]+)', post_url):
+                    post_code = re.search(r'instagram\.com/reels/([^/?]+)', post_url).group(1)
+                # Son çare olarak, URL'nin son parçasını kullan
                 else:
-                    post_code = post_url.split('/')[-1].split('?')[0]
+                    # URL'nin son kısmını al ve query parametrelerini kaldır
+                    post_code = post_url.split('/')[-1]
+                    if '?' in post_code:
+                        post_code = post_code.split('?')[0]
             else:
-                # Sadece kod
+                # Sadece kod girilmişse
                 post_code = post_url
+            
+            # Post kodunun geçerli olup olmadığını kontrol et
+            if not post_code or len(post_code) < 5:
+                print(self._("post_error", "Invalid post code format"))
+                return False
+                
+            # Özel karakterleri temizle
+            post_code = post_code.strip()
             
             # Geçici klasör oluştur
             temp_dir = Path("./temp_post")
