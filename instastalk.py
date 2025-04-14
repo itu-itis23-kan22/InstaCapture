@@ -1388,11 +1388,25 @@ class InstaStalker:
             story_obj.cookies = self.cookies
             story_obj.user_id = user_id
             
-            # Get the stories data
-            result = story_obj.get_stories_data()
+            # Create temporary directory
+            temp_dir = Path("./temp_story_gui")
+            temp_dir.mkdir(exist_ok=True)
+            story_obj.folder_path = str(temp_dir)
+            
+            # Get the stories data using story_download instead of get_stories_data
+            result = story_obj.story_download()
+            
+            # Clean up temporary directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
             return result
         except Exception as e:
             print(f"Error in get_stories: {str(e)}")
+            # Clean up in case of error
+            try:
+                shutil.rmtree(Path("./temp_story_gui"), ignore_errors=True)
+            except:
+                pass
             return {}
     
     def get_posts(self, username, limit=12):
