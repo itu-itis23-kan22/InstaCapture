@@ -156,14 +156,346 @@ class InstaStalkGUI(tk.Tk):
         
         # Çerezleri yükle
         if self.stalker.load_cookies():
-            self.update_status(self._("cookies_loaded", self.stalker.cookies_file))
+            msg = self._("cookies_loaded", self.stalker.cookies_file)
+            self.update_status(msg)
+            self.update_log(msg)
+        else:
+            msg = "Çerezler yüklenemedi veya bulunamadı."
+            self.update_status(msg)
+            self.update_log(msg)
+            # Uygulama başlatıldığında çerezleri sor
+            self.after(1000, self.check_and_ask_for_cookies)
         
         # Dil değişikliklerini dinle
         self.bind("<<LanguageChanged>>", self.refresh_language)
         
         # Pencere kapatılırken olayını yakala
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+    
+    def check_and_ask_for_cookies(self):
+        """Çerezleri kontrol et ve gerekiyorsa sor"""
+        if not self.stalker.get_cookies_dict():
+            self.update_log("⚠️ Çerezler eksik veya geçersiz. Çerez ayarlama penceresi açılıyor...")
+            self.show_cookies_dialog()
+    
+    def update_log(self, text):
+        """Log sekmesine yeni satır ekle"""
+        def _update():
+            self.log_text.config(state=tk.NORMAL)
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.log_text.insert(tk.END, f"[{current_time}] {text}\n")
+            self.log_text.see(tk.END)
+            self.log_text.config(state=tk.DISABLED)
+            
+            # Log sekmesini seçili hale getirerek kullanıcının dikkatini çek
+            if "Cookies" in text or "Çerez" in text or "Error" in text or "Hata" in text:
+                self.tab_control.select(5)  # Log sekmesini aktif yap (index 5)
         
+        if is_main_thread():
+            _update()
+        else:
+            self.after(0, _update)
+    
+    def capture_output(self, func):
+        """Capture output of a function and return it as a string, also log it"""
+        import io
+        import sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        result = None
+        output = ""
+        try:
+            result = func()
+            output = sys.stdout.getvalue()
+            # Log the output
+            for line in output.split('\n'):
+                if line.strip():
+                    self.update_log(line)
+            return result, output
+        except Exception as e:
+            output = sys.stdout.getvalue()
+            error_msg = f"Error in capture_output: {str(e)}"
+            print(error_msg)
+            self.update_log(f"❌ {error_msg}")
+            # Log the output before error
+            for line in output.split('\n'):
+                if line.strip():
+                    self.update_log(line)
+            return False, output + f"\nError: {str(e)}"
+        finally:
+            sys.stdout = old_stdout
+    
+    def _download_stories_thread(self, username):
+        """Background thread for downloading stories"""
+        try:
+            # Check for cookies
+            cookies = self.stalker.get_cookies_dict()
+            if not cookies:
+                self.update_status(self._("cookies_required"))
+                self.update_result_text_widget(self.current_text_widget, f"⚠️ {self._('cookies_required_explanation')}")
+                self.update_log("⚠️ Hikaye indirmek için çerezler gerekli. Çerez ayarlama penceresi açılıyor...")
+                
+                # Çerezleri sor - thread safe olarak ana thread'e çağrı yap
+                self.after(0, lambda: self.ask_for_cookies_and_retry(username, "stories"))
+                return
+            
+            # Get the user ID
+            user_id = self._get_user_id_from_profile(username)
+            
+            if not user_id:
+                error_msg = self._("could_not_find_user_id").format(username=username)
+                self.update_status(self._("user_id_not_found"))
+                self.update_result_text_widget(self.current_text_widget, f"❌ {error_msg}")
+                self.update_log(f"❌ {error_msg}")
+                return
+                
+            # Fetch stories
+            msg = f"{self._('fetching_stories')} {username} (ID: {user_id})..."
+            self.update_status(msg)
+            self.update_log(msg)
+            
+            start_time = time.time()
+            
+            try:
+                # Create directory for saving if it doesn't exist
+                save_dir = os.path.join("instagram_content", "stories", username)
+                os.makedirs(save_dir, exist_ok=True)
+                
+                story_response = self.stalker.get_stories(user_id)
+                
+                # Check if there are any stories
+                if not story_response.get("reels_media"):
+                    self.update_status(f"{self._('no_stories')} {username}")
+                    self.update_result_text_widget(self.current_text_widget, f"ℹ️ {self._('no_active_stories').format(username=username)}")
+                    return
+                
+                stories = story_response["reels_media"][0]["items"]
+                story_count = len(stories)
+                
+                self.update_status(f"{self._('found_stories').format(count=story_count, username=username)}")
+                self.update_result_text_widget(self.current_text_widget, f"🔍 {self._('found_stories').format(count=story_count, username=username)}")
+                
+                # Download each story
+                for i, story in enumerate(stories, 1):
+                    self.update_status(f"{self._('downloading_story')} {i}/{story_count}...")
+                    
+                    # Determine if it's a photo or video
+                    if "video_versions" in story:
+                        # It's a video
+                        video_url = story["video_versions"][0]["url"]
+                        timestamp = story.get("taken_at", int(time.time()))
+                        date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
+                        filename = f"{date_str}_video.mp4"
+                        file_path = os.path.join(save_dir, filename)
+                        
+                        # Download the video
+                        with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                        
+                        media_type = self._("video")
+                    else:
+                        # It's an image
+                        image_url = story["image_versions2"]["candidates"][0]["url"]
+                        timestamp = story.get("taken_at", int(time.time()))
+                        date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
+                        filename = f"{date_str}_image.jpg"
+                        file_path = os.path.join(save_dir, filename)
+                        
+                        # Download the image
+                        with requests.get(image_url, timeout=(10, 30)) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                f.write(r.content)
+                        
+                        media_type = self._("image")
+                    
+                    self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_story').format(number=i, type=media_type)}")
+                
+                elapsed_time = time.time() - start_time
+                self.update_status(f"{self._('download_complete')} ({story_count} {self._('stories')} - {elapsed_time:.1f}s)")
+                self.update_result_text_widget(self.current_text_widget, f"\n📁 {self._('saved_in').format(path=save_dir)}")
+                
+            except requests.RequestException as e:
+                self.update_status(f"{self._('network_error')}: {e}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('network_error')}: {e}")
+            except json.JSONDecodeError:
+                self.update_status(self._("invalid_response"))
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('invalid_response_explanation')}")
+            except KeyError as e:
+                self.update_status(f"{self._('format_error')}: {e}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('format_error_explanation')}")
+                
+        except Exception as e:
+            self.update_status(f"{self._('error')}: {e}")
+            self.update_result_text_widget(self.current_text_widget, f"❌ {self._('unexpected_error')}: {str(e)}")
+            # Log more detailed error information for debugging
+            import traceback
+            print(f"Error in download_stories: {traceback.format_exc()}")
+    
+    def _download_posts_thread(self, username, limit):
+        """Background thread for downloading posts"""
+        try:
+            # Check for cookies
+            cookies = self.stalker.get_cookies_dict()
+            if not cookies:
+                self.update_status(self._("cookies_required"))
+                self.update_result_text_widget(self.current_text_widget, f"⚠️ {self._('cookies_required_explanation')}")
+                self.update_log("⚠️ Gönderi indirmek için çerezler gerekli. Çerez ayarlama penceresi açılıyor...")
+                
+                # Çerezleri sor - thread safe olarak ana thread'e çağrı yap
+                self.after(0, lambda: self.ask_for_cookies_and_retry(username, "posts", limit))
+                return
+                
+            # Get the user ID (optional for posts but useful for better queries)
+            user_id = self._get_user_id_from_profile(username)
+            
+            start_time = time.time()
+            
+            try:
+                # Create directory for saving if it doesn't exist
+                save_dir = os.path.join("instagram_content", "posts", username)
+                os.makedirs(save_dir, exist_ok=True)
+                
+                # Fetch and download posts
+                posts = self.stalker.get_posts(username, limit)
+                
+                if not posts:
+                    self.update_status(f"{self._('no_posts')} {username}")
+                    self.update_result_text_widget(self.current_text_widget, f"ℹ️ {self._('no_posts_found').format(username=username)}")
+                    return
+                
+                post_count = len(posts)
+                self.update_status(f"{self._('found_posts').format(count=post_count, username=username)}")
+                self.update_result_text_widget(self.current_text_widget, f"🔍 {self._('found_posts').format(count=post_count, username=username)}")
+                
+                # Track downloaded media count
+                total_media = 0
+                
+                # Download each post
+                for i, post in enumerate(posts, 1):
+                    self.update_status(f"{self._('downloading_post')} {i}/{post_count}...")
+                    
+                    # Get post timestamp for filename
+                    timestamp = post.get("taken_at", int(time.time()))
+                    date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
+                    
+                    # Handle carousel posts
+                    if post.get("carousel_media"):
+                        # Multiple images/videos in one post
+                        for j, media in enumerate(post["carousel_media"], 1):
+                            if media.get("video_versions"):
+                                # Download video from carousel
+                                video_url = media["video_versions"][0]["url"]
+                                filename = f"{date_str}_carousel_{j}_video.mp4"
+                                file_path = os.path.join(save_dir, filename)
+                                
+                                with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
+                                    r.raise_for_status()
+                                    with open(file_path, 'wb') as f:
+                                        for chunk in r.iter_content(chunk_size=8192):
+                                            f.write(chunk)
+                                
+                                media_type = self._("video")
+                            else:
+                                # Download image from carousel
+                                image_url = media["image_versions2"]["candidates"][0]["url"]
+                                filename = f"{date_str}_carousel_{j}_image.jpg"
+                                file_path = os.path.join(save_dir, filename)
+                                
+                                with requests.get(image_url, timeout=(10, 30)) as r:
+                                    r.raise_for_status()
+                                    with open(file_path, 'wb') as f:
+                                        f.write(r.content)
+                                
+                                media_type = self._("image")
+                            
+                            total_media += 1
+                            self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_carousel_item').format(post=i, item=j, type=media_type)}")
+                    
+                    elif post.get("video_versions"):
+                        # Single video post
+                        video_url = post["video_versions"][0]["url"]
+                        filename = f"{date_str}_video.mp4"
+                        file_path = os.path.join(save_dir, filename)
+                        
+                        with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                        
+                        total_media += 1
+                        self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_post').format(number=i, type=self._('video'))}")
+                    
+                    else:
+                        # Single image post
+                        image_url = post["image_versions2"]["candidates"][0]["url"]
+                        filename = f"{date_str}_image.jpg"
+                        file_path = os.path.join(save_dir, filename)
+                        
+                        with requests.get(image_url, timeout=(10, 30)) as r:
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                f.write(r.content)
+                        
+                        total_media += 1
+                        self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_post').format(number=i, type=self._('image'))}")
+                
+                elapsed_time = time.time() - start_time
+                self.update_status(f"{self._('download_complete')} ({total_media} {self._('media')} - {elapsed_time:.1f}s)")
+                self.update_result_text_widget(self.current_text_widget, f"\n📁 {self._('saved_in').format(path=save_dir)}")
+                
+            except requests.RequestException as e:
+                self.update_status(f"{self._('network_error')}: {e}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('network_error')}: {e}")
+            except json.JSONDecodeError:
+                self.update_status(self._("invalid_response"))
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('invalid_response_explanation')}")
+            except KeyError as e:
+                self.update_status(f"{self._('format_error')}: {e}")
+                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('format_error_explanation')}")
+                
+        except Exception as e:
+            self.update_status(f"{self._('error')}: {e}")
+            self.update_result_text_widget(self.current_text_widget, f"❌ {self._('unexpected_error')}: {str(e)}")
+            # Log more detailed error information for debugging
+            import traceback
+            print(f"Error in download_posts: {traceback.format_exc()}")
+    
+    def ask_for_cookies_and_retry(self, username, action_type, limit=None):
+        """Çerezleri sor ve işlemi tekrar dene"""
+        result = messagebox.askyesno(
+            "Çerezler Gerekli", 
+            "Instagram içeriğini indirmek için çerezler gerekli. Şimdi çerezleri ayarlamak ister misiniz?", 
+            icon=messagebox.WARNING
+        )
+        
+        if result:
+            # Çerez ayarlama dialogunu göster
+            self.show_cookies_dialog()
+            
+            # Çerezler başarıyla ayarlandıysa, işlemi tekrar dene
+            if self.stalker.get_cookies_dict():
+                self.update_log("✅ Çerezler başarıyla ayarlandı. İşlem tekrar deneniyor...")
+                
+                if action_type == "stories":
+                    self.download_stories()  # Hikaye indirme işlemini tekrar başlat
+                elif action_type == "posts" and limit is not None:
+                    # Gönderi indirme işlemini limit ile tekrar başlat
+                    self.current_text_widget = self.post_result_text
+                    self.update_result_text_widget(self.post_result_text, "", append=False)
+                    self.update_status(f"{self._('downloading_posts')} {username} ({limit} posts)...")
+                    download_thread = threading.Thread(target=self._download_posts_thread, args=(username, limit))
+                    download_thread.daemon = True
+                    download_thread.start()
+            else:
+                self.update_log("❌ Çerezler ayarlanamadı veya iptal edildi.")
+        else:
+            self.update_log("ℹ️ Çerez ayarlama işlemi iptal edildi.")
+    
     def _(self, key, *args):
         """Dil çevirisi yapar."""
         return self.stalker._(key, *args)
@@ -550,108 +882,6 @@ class InstaStalkGUI(tk.Tk):
         download_thread.daemon = True
         download_thread.start()
     
-    def _download_stories_thread(self, username):
-        """Background thread for downloading stories"""
-        try:
-            # Check for cookies
-            cookies = self.stalker.get_cookies_dict()
-            if not cookies:
-                self.update_status(self._("cookies_required"))
-                self.update_result_text_widget(self.current_text_widget, f"⚠️ {self._('cookies_required_explanation')}")
-                return
-            
-            # Get the user ID
-            user_id = self._get_user_id_from_profile(username)
-            
-            if not user_id:
-                self.update_status(self._("user_id_not_found"))
-                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('could_not_find_user_id').format(username=username)}")
-                return
-                
-            # Fetch stories
-            self.update_status(f"{self._('fetching_stories')} {username} (ID: {user_id})...")
-            
-            start_time = time.time()
-            
-            try:
-                # Create directory for saving if it doesn't exist
-                save_dir = os.path.join("instagram_content", "stories", username)
-                os.makedirs(save_dir, exist_ok=True)
-                
-                story_response = self.stalker.get_stories(user_id)
-                
-                # Check if there are any stories
-                if not story_response.get("reels_media"):
-                    self.update_status(f"{self._('no_stories')} {username}")
-                    self.update_result_text_widget(self.current_text_widget, f"ℹ️ {self._('no_active_stories').format(username=username)}")
-                    return
-                
-                stories = story_response["reels_media"][0]["items"]
-                story_count = len(stories)
-                
-                self.update_status(f"{self._('found_stories').format(count=story_count, username=username)}")
-                self.update_result_text_widget(self.current_text_widget, f"🔍 {self._('found_stories').format(count=story_count, username=username)}")
-                
-                # Download each story
-                for i, story in enumerate(stories, 1):
-                    self.update_status(f"{self._('downloading_story')} {i}/{story_count}...")
-                    
-                    # Determine if it's a photo or video
-                    if "video_versions" in story:
-                        # It's a video
-                        video_url = story["video_versions"][0]["url"]
-                        timestamp = story.get("taken_at", int(time.time()))
-                        date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
-                        filename = f"{date_str}_video.mp4"
-                        file_path = os.path.join(save_dir, filename)
-                        
-                        # Download the video
-                        with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
-                            r.raise_for_status()
-                            with open(file_path, 'wb') as f:
-                                for chunk in r.iter_content(chunk_size=8192):
-                                    f.write(chunk)
-                        
-                        media_type = self._("video")
-                    else:
-                        # It's an image
-                        image_url = story["image_versions2"]["candidates"][0]["url"]
-                        timestamp = story.get("taken_at", int(time.time()))
-                        date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
-                        filename = f"{date_str}_image.jpg"
-                        file_path = os.path.join(save_dir, filename)
-                        
-                        # Download the image
-                        with requests.get(image_url, timeout=(10, 30)) as r:
-                            r.raise_for_status()
-                            with open(file_path, 'wb') as f:
-                                f.write(r.content)
-                        
-                        media_type = self._("image")
-                    
-                    self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_story').format(number=i, type=media_type)}")
-                
-                elapsed_time = time.time() - start_time
-                self.update_status(f"{self._('download_complete')} ({story_count} {self._('stories')} - {elapsed_time:.1f}s)")
-                self.update_result_text_widget(self.current_text_widget, f"\n📁 {self._('saved_in').format(path=save_dir)}")
-                
-            except requests.RequestException as e:
-                self.update_status(f"{self._('network_error')}: {e}")
-                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('network_error')}: {e}")
-            except json.JSONDecodeError:
-                self.update_status(self._("invalid_response"))
-                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('invalid_response_explanation')}")
-            except KeyError as e:
-                self.update_status(f"{self._('format_error')}: {e}")
-                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('format_error_explanation')}")
-                
-        except Exception as e:
-            self.update_status(f"{self._('error')}: {e}")
-            self.update_result_text_widget(self.current_text_widget, f"❌ {self._('unexpected_error')}: {str(e)}")
-            # Log more detailed error information for debugging
-            import traceback
-            print(f"Error in download_stories: {traceback.format_exc()}")
-    
     def download_posts(self):
         """Download posts of given username"""
         username = self.username_entry.get().strip()
@@ -681,132 +911,6 @@ class InstaStalkGUI(tk.Tk):
         download_thread = threading.Thread(target=self._download_posts_thread, args=(username, limit))
         download_thread.daemon = True
         download_thread.start()
-        
-    def _download_posts_thread(self, username, limit):
-        """Background thread for downloading posts"""
-        try:
-            # Check for cookies
-            cookies = self.stalker.get_cookies_dict()
-            if not cookies:
-                self.update_status(self._("cookies_required"))
-                self.update_result_text_widget(self.current_text_widget, f"⚠️ {self._('cookies_required_explanation')}")
-                return
-                
-            # Get the user ID (optional for posts but useful for better queries)
-            user_id = self._get_user_id_from_profile(username)
-            
-            start_time = time.time()
-            
-            try:
-                # Create directory for saving if it doesn't exist
-                save_dir = os.path.join("instagram_content", "posts", username)
-                os.makedirs(save_dir, exist_ok=True)
-                
-                # Fetch and download posts
-                posts = self.stalker.get_posts(username, limit)
-                
-                if not posts:
-                    self.update_status(f"{self._('no_posts')} {username}")
-                    self.update_result_text_widget(self.current_text_widget, f"ℹ️ {self._('no_posts_found').format(username=username)}")
-                    return
-                
-                post_count = len(posts)
-                self.update_status(f"{self._('found_posts').format(count=post_count, username=username)}")
-                self.update_result_text_widget(self.current_text_widget, f"🔍 {self._('found_posts').format(count=post_count, username=username)}")
-                
-                # Track downloaded media count
-                total_media = 0
-                
-                # Download each post
-                for i, post in enumerate(posts, 1):
-                    self.update_status(f"{self._('downloading_post')} {i}/{post_count}...")
-                    
-                    # Get post timestamp for filename
-                    timestamp = post.get("taken_at", int(time.time()))
-                    date_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d_%H-%M-%S")
-                    
-                    # Handle carousel posts
-                    if post.get("carousel_media"):
-                        # Multiple images/videos in one post
-                        for j, media in enumerate(post["carousel_media"], 1):
-                            if media.get("video_versions"):
-                                # Download video from carousel
-                                video_url = media["video_versions"][0]["url"]
-                                filename = f"{date_str}_carousel_{j}_video.mp4"
-                                file_path = os.path.join(save_dir, filename)
-                                
-                                with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
-                                    r.raise_for_status()
-                                    with open(file_path, 'wb') as f:
-                                        for chunk in r.iter_content(chunk_size=8192):
-                                            f.write(chunk)
-                                
-                                media_type = self._("video")
-                            else:
-                                # Download image from carousel
-                                image_url = media["image_versions2"]["candidates"][0]["url"]
-                                filename = f"{date_str}_carousel_{j}_image.jpg"
-                                file_path = os.path.join(save_dir, filename)
-                                
-                                with requests.get(image_url, timeout=(10, 30)) as r:
-                                    r.raise_for_status()
-                                    with open(file_path, 'wb') as f:
-                                        f.write(r.content)
-                                
-                                media_type = self._("image")
-                            
-                            total_media += 1
-                            self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_carousel_item').format(post=i, item=j, type=media_type)}")
-                    
-                    elif post.get("video_versions"):
-                        # Single video post
-                        video_url = post["video_versions"][0]["url"]
-                        filename = f"{date_str}_video.mp4"
-                        file_path = os.path.join(save_dir, filename)
-                        
-                        with requests.get(video_url, stream=True, timeout=(10, 30)) as r:
-                            r.raise_for_status()
-                            with open(file_path, 'wb') as f:
-                                for chunk in r.iter_content(chunk_size=8192):
-                                    f.write(chunk)
-                        
-                        total_media += 1
-                        self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_post').format(number=i, type=self._('video'))}")
-                    
-                    else:
-                        # Single image post
-                        image_url = post["image_versions2"]["candidates"][0]["url"]
-                        filename = f"{date_str}_image.jpg"
-                        file_path = os.path.join(save_dir, filename)
-                        
-                        with requests.get(image_url, timeout=(10, 30)) as r:
-                            r.raise_for_status()
-                            with open(file_path, 'wb') as f:
-                                f.write(r.content)
-                        
-                        total_media += 1
-                        self.update_result_text_widget(self.current_text_widget, f"✅ {self._('downloaded_post').format(number=i, type=self._('image'))}")
-                
-                elapsed_time = time.time() - start_time
-                self.update_status(f"{self._('download_complete')} ({total_media} {self._('media')} - {elapsed_time:.1f}s)")
-                self.update_result_text_widget(self.current_text_widget, f"\n📁 {self._('saved_in').format(path=save_dir)}")
-                
-            except requests.RequestException as e:
-                self.update_status(f"{self._('network_error')}: {e}")
-                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('network_error')}: {e}")
-            except json.JSONDecodeError:
-                self.update_status(self._("invalid_response"))
-                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('invalid_response_explanation')}")
-            except KeyError as e:
-                self.update_status(f"{self._('format_error')}: {e}")
-                self.update_result_text_widget(self.current_text_widget, f"❌ {self._('format_error_explanation')}")
-                
-        except Exception as e:
-            self.update_status(f"{self._('error')}: {e}")
-            self.update_result_text_widget(self.current_text_widget, f"❌ {self._('unexpected_error')}: {str(e)}")
-            # Log more detailed error information for debugging
-            import traceback
-            print(f"Error in download_posts: {traceback.format_exc()}")
     
     def download_profile(self):
         """Profil indirme işlemini başlat."""
@@ -1035,11 +1139,20 @@ class InstaStalkGUI(tk.Tk):
             success = self.stalker.set_cookies_from_string(cookie_str.strip())
             
             if success:
-                messagebox.showinfo("Başarılı", f"Çerezler başarıyla kaydedildi: {self.stalker.cookies_file}")
-                self.update_status(f"Çerezler kaydedildi: {self.stalker.cookies_file}")
+                msg = f"✅ Çerezler başarıyla kaydedildi: {self.stalker.cookies_file}"
+                messagebox.showinfo("Başarılı", msg)
+                self.update_status(msg)
+                self.update_log(msg)
             else:
-                messagebox.showerror("Hata", "Çerezler kaydedilirken bir hata oluştu!")
-
+                error_msg = "❌ Çerezler kaydedilirken bir hata oluştu!"
+                messagebox.showerror("Hata", error_msg)
+                self.update_log(error_msg)
+            
+            return success
+        else:
+            self.update_log("ℹ️ Çerez girişi yapılmadı veya iptal edildi.")
+            return False
+    
     def fetch_highlights(self):
         """Öne çıkan hikayeleri getir."""
         username = self.highlights_username_var.get().strip()
@@ -1606,7 +1719,7 @@ class InstaStalkGUI(tk.Tk):
         except Exception as e:
             self.update_result_text_widget(self.highlights_result_text, f"❌ Hata: {str(e)}\n")
             messagebox.showerror("Hata", f"Öne çıkan hikayeler indirilirken bir hata oluştu: {str(e)}")
-
+    
     def _get_user_id_from_profile(self, username):
         """
         Get user ID from Instagram profile page
@@ -1697,19 +1810,6 @@ class InstaStalkGUI(tk.Tk):
             instructions
         )
         return user_id
-
-    def update_log(self, text):
-        """Log sekmesine yeni satır ekle"""
-        def _update():
-            self.log_text.config(state=tk.NORMAL)
-            self.log_text.insert(tk.END, f"{text}\n")
-            self.log_text.see(tk.END)
-            self.log_text.config(state=tk.DISABLED)
-        
-        if is_main_thread():
-            _update()
-        else:
-            self.after(0, _update)
     
     def clear_log(self):
         """Log sekmesinin içeriğini temizle"""
@@ -1723,25 +1823,6 @@ class InstaStalkGUI(tk.Tk):
         else:
             self.after(0, _update)
     
-    def capture_output(self, func):
-        """Capture output of a function and return it as a string"""
-        import io
-        import sys
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        result = None
-        output = ""
-        try:
-            result = func()
-            output = sys.stdout.getvalue()
-            return result, output
-        except Exception as e:
-            output = sys.stdout.getvalue()
-            print(f"Error in capture_output: {str(e)}")
-            return False, output + f"\nError: {str(e)}"
-        finally:
-            sys.stdout = old_stdout
-
     def download_reels(self):
         """Download reels of given username"""
         username = self.username_entry3.get().strip()
