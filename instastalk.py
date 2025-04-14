@@ -456,13 +456,11 @@ class InstaStalker:
             print(self._("cookies_not_saved", str(e)))
             return False
     
-    def get_cookies_dict(self):
-        """Get cookies as dictionary for API requests.
+    def toggle_encryption
+        """Get cookies as a dictionary.
         This is a helper method needed in the GUI to check if cookies are set.
         """
-        if hasattr(self, 'cookies') and self.cookies:
-            return self.cookies
-        return None
+        return self.cookies
     
     def toggle_encryption(self):
         """Çerez şifrelemeyi aç/kapat."""
@@ -968,7 +966,7 @@ class InstaStalker:
             return False
 
     def download_highlights(self, username):
-        """Belirtilen kullanıcının öne çıkan hikayelerini (highlights) indir."""
+        """Download highlights for a user."""
         if not self.cookies:
             print(self._("no_cookies"))
             if not self.get_interactive_cookies():
@@ -1391,44 +1389,6 @@ class InstaStalker:
             print(self._("highlight_error", str(e)))
             return False
 
-    def get_stories(self, user_id):
-        """Get stories for a specific user ID.
-        This is a helper method for the GUI to fetch stories.
-        """
-        try:
-            # Create InstaStory object
-            story_obj = InstaStory()
-            story_obj.cookies = self.cookies
-            
-            # InstaCapture kütüphanesi için ilgili diğer attributes
-            # cookies'i farklı bir formatta (dict olarak) bekliyorsa bunu da sağlayalım
-            if hasattr(story_obj, 'cookies_dict'):
-                story_obj.cookies_dict = self.cookies
-            
-            story_obj.user_id = user_id
-            
-            # Create temporary directory
-            temp_dir = Path("./temp_story_gui")
-            temp_dir.mkdir(exist_ok=True)
-            story_obj.folder_path = str(temp_dir)
-            
-            # Get the stories data using story_download instead of get_stories_data
-            result = story_obj.story_download()
-            
-            # Clean up temporary directory
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            
-            return result
-        except Exception as e:
-            print(f"Error in get_stories: {str(e)}")
-            # Clean up in case of error
-            try:
-                shutil.rmtree(Path("./temp_story_gui"), ignore_errors=True)
-            except:
-                pass
-            return {}
-    
-    def get_posts(self, username, limit=12):
         """Get posts for a specific username with a limit.
         This is a helper method for the GUI to fetch posts.
         """

@@ -2,4 +2,3 @@ instacapture
 pytz
 requests
 lxml
-pillow   # GUI resim işleme için
