@@ -735,6 +735,24 @@ class InstaStalker:
                     "Cache-Control": "no-cache",
                 }
                 
+                # Daha gerçekçi tarayıcı istekleri için ek headerlar
+                enhanced_headers = {
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Referer": "https://www.instagram.com/",
+                    "sec-ch-ua": "\"Not A(Brand\";v=\"99\", \"Google Chrome\";v=\"121\", \"Chromium\";v=\"121\"",
+                    "sec-ch-ua-mobile": "?0",
+                    "sec-ch-ua-platform": "\"macOS\"",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate", 
+                    "Sec-Fetch-Site": "cross-site",
+                    "Sec-Fetch-User": "?1",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Priority": "high",
+                }
+                
                 # Önce post sayfasını çekelim (deneme Reel URL formatı)
                 post_url = f"https://www.instagram.com/p/{post_code}/"
                 response = requests.get(post_url, headers=headers, cookies=self.cookies)
@@ -945,51 +963,176 @@ class InstaStalker:
                                     if is_video and video_url_match:
                                         # Video indir
                                         video_url = video_url_match.group(1)
-                                        video_response = requests.get(video_url, stream=True)
                                         
-                                        # İstek başarılı mı kontrol et
-                                        if video_response.status_code != 200:
-                                            print(f"❌ Video indirme başarısız. HTTP kodu: {video_response.status_code}")
-                                            return False
+                                        # 403 hatalarını ele almak için yeniden deneme mekanizması
+                                        max_retries = 3
+                                        retry_delay = 2  # saniye
+                                        success = False
+                                        
+                                        for attempt in range(max_retries):
+                                            # İlk denemede normal, sonraki denemelerde gelişmiş headerları kullan
+                                            current_headers = headers if attempt == 0 else enhanced_headers
                                             
-                                        # Medya boyutu çok küçük mü kontrol et - muhtemel hata/koruma sayfası
-                                        content_length = int(video_response.headers.get('Content-Length', 0))
-                                        if content_length < 10000:  # 10KB'dan küçükse şüpheli
-                                            print(f"❌ Video içeriği çok küçük ({content_length} byte). Muhtemelen geçersiz.")
-                                            return False
+                                            # Referrer ve Origin headerlarını ayarla
+                                            current_headers['Referer'] = f"https://www.instagram.com/p/{post_code}/"
+                                            if attempt > 0:
+                                                current_headers['Origin'] = "https://www.instagram.com"
+                                                
+                                                # URL'ye random parametre ekle (anti-caching)
+                                                if '?' not in video_url:
+                                                    video_url += f"?_={int(time.time())}"
+                                                else:
+                                                    video_url += f"&_={int(time.time())}"
                                             
-                                        video_path = post_dir / f"{post_code}.mp4"
-                                        with open(video_path, 'wb') as f:
-                                            for chunk in video_response.iter_content(chunk_size=8192):
-                                                if chunk:
-                                                    f.write(chunk)
-                                        print(f"✅ Video meta etiketlerinden indirildi: {video_path}")
+                                            # Gerçek tarayıcı davranışını simüle etmek için düşük gecikme
+                                            if attempt > 0:
+                                                time.sleep(retry_delay)
+                                                print(f"🔄 Video indirme yeniden deneniyor (deneme {attempt+1}/{max_retries})...")
+                                            
+                                            try:
+                                                # İstek yap
+                                                video_response = requests.get(video_url, stream=True, headers=current_headers, cookies=self.cookies)
+                                                
+                                                # Başarılı ise kaydet ve çık
+                                                if video_response.status_code == 200:
+                                                    # Content-Type kontrolü
+                                                    content_type = video_response.headers.get('Content-Type', '')
+                                                    if not content_type.startswith(('video/', 'application/')):  # MP4 bazen application/octet-stream olabilir
+                                                        print(f"⚠️ İndirilen içerik bir video değil: {content_type}. Yeniden deneniyor...")
+                                                        continue
+                                                    
+                                                    # Dosyayı kaydet
+                                                    video_path = post_dir / f"{post_code}.mp4"
+                                                    with open(video_path, 'wb') as f:
+                                                        for chunk in video_response.iter_content(chunk_size=8192):
+                                                            if chunk:
+                                                                f.write(chunk)
+                                                    
+                                                    # Boyut kontrolü (boş dosya veya çok küçük dosya mı?)
+                                                    file_size = os.path.getsize(video_path)
+                                                    if file_size < 10000:  # 10KB'dan küçük
+                                                        print(f"⚠️ Video dosyası çok küçük ({file_size} byte). Yeniden deneniyor...")
+                                                        continue
+                                                    
+                                                    print(f"✅ Video meta etiketlerinden indirildi: {video_path}")
+                                                    success = True
+                                                    break
+                                                else:
+                                                    print(f"⚠️ Video indirme başarısız. HTTP kodu: {video_response.status_code}. Yeniden deneniyor...")
+                                            except Exception as e:
+                                                print(f"⚠️ Video indirme hatası: {str(e)}. Yeniden deneniyor...")
+                                                
+                                        if not success:
+                                            print("❌ Video indirilemedi. Tüm denemeler başarısız oldu.")
+                                            # Alternatif yöntem: web.archive.org'den dene
+                                            try:
+                                                print("🔄 Archive.org üzerinden video indirme deneniyor...")
+                                                archive_url = f"https://web.archive.org/web/0im_/{video_url}"
+                                                archive_response = requests.get(archive_url, headers=enhanced_headers, stream=True)
+                                                
+                                                if archive_response.status_code == 200:
+                                                    video_path = post_dir / f"{post_code}.mp4"
+                                                    with open(video_path, 'wb') as f:
+                                                        for chunk in archive_response.iter_content(chunk_size=8192):
+                                                            if chunk:
+                                                                f.write(chunk)
+                                                    
+                                                    # Boyut kontrolü
+                                                    file_size = os.path.getsize(video_path)
+                                                    if file_size > 10000:
+                                                        print(f"✅ Video archive.org üzerinden indirildi: {video_path}")
+                                                        success = True
+                                                    else:
+                                                        print("❌ Archive.org üzerinden indirilen video çok küçük.")
+                                                else:
+                                                    print("❌ Archive.org üzerinden indirme başarısız.")
+                                            except Exception as e:
+                                                print(f"❌ Archive.org üzerinden indirme hatası: {str(e)}")
+                                            
+                                            if not success:
+                                                return False
+                                    
                                     elif image_url_match:
                                         # Resim indir
                                         image_url = image_url_match.group(1)
-                                        image_response = requests.get(image_url)
                                         
-                                        # İstek başarılı mı kontrol et
-                                        if image_response.status_code != 200:
-                                            print(f"❌ Resim indirme başarısız. HTTP kodu: {image_response.status_code}")
-                                            return False
+                                        # 403 hatalarını ele almak için yeniden deneme mekanizması
+                                        max_retries = 3
+                                        retry_delay = 2  # saniye
+                                        success = False
+                                        
+                                        for attempt in range(max_retries):
+                                            # İlk denemede normal, sonraki denemelerde gelişmiş headerları kullan
+                                            current_headers = headers if attempt == 0 else enhanced_headers
                                             
-                                        # Medya boyutu çok küçük mü kontrol et - muhtemel hata/koruma sayfası
-                                        content_length = int(image_response.headers.get('Content-Length', 0))
-                                        if content_length < 5000:  # 5KB'dan küçükse şüpheli
-                                            print(f"❌ Resim içeriği çok küçük ({content_length} byte). Muhtemelen geçersiz.")
-                                            return False
-                                        
-                                        # Gerçekten bir resim mi kontrol et (ilk birkaç baytı kontrol)
-                                        content_type = image_response.headers.get('Content-Type', '')
-                                        if not content_type.startswith('image/'):
-                                            print(f"❌ İndirilen içerik bir resim değil. Content-Type: {content_type}")
-                                            return False
-                                        
-                                        image_path = post_dir / f"{post_code}.jpg"
-                                        with open(image_path, 'wb') as f:
-                                            f.write(image_response.content)
-                                        print(f"✅ Resim meta etiketlerinden indirildi: {image_path}")
+                                            # Referrer ve Origin headerlarını ayarla
+                                            current_headers['Referer'] = f"https://www.instagram.com/p/{post_code}/"
+                                            if attempt > 0:
+                                                current_headers['Origin'] = "https://www.instagram.com"
+                                                
+                                                # URL'ye random parametre ekle (anti-caching)
+                                                if '?' not in image_url:
+                                                    image_url += f"?_={int(time.time())}"
+                                                else:
+                                                    image_url += f"&_={int(time.time())}"
+                                            
+                                            # Gerçek tarayıcı davranışını simüle etmek için düşük gecikme
+                                            if attempt > 0:
+                                                time.sleep(retry_delay)
+                                                print(f"🔄 Resim indirme yeniden deneniyor (deneme {attempt+1}/{max_retries})...")
+                                            
+                                            try:
+                                                # İstek yap
+                                                image_response = requests.get(image_url, headers=current_headers, cookies=self.cookies)
+                                                
+                                                # Başarılı ise kaydet ve çık
+                                                if image_response.status_code == 200:
+                                                    # İçerik boyutu kontrolü
+                                                    content_length = len(image_response.content)
+                                                    if content_length < 5000:  # 5KB'dan küçükse şüpheli
+                                                        print(f"⚠️ Resim içeriği çok küçük ({content_length} byte). Yeniden deneniyor...")
+                                                        continue
+                                                    
+                                                    # Content-Type kontrolü
+                                                    content_type = image_response.headers.get('Content-Type', '')
+                                                    if not content_type.startswith(('image/', 'application/')):  # Bazı JPEG'ler application/ olabilir
+                                                        print(f"⚠️ İndirilen içerik bir resim değil: {content_type}. Yeniden deneniyor...")
+                                                        continue
+                                                    
+                                                    # Dosyayı kaydet
+                                                    image_path = post_dir / f"{post_code}.jpg"
+                                                    with open(image_path, 'wb') as f:
+                                                        f.write(image_response.content)
+                                                    
+                                                    print(f"✅ Resim meta etiketlerinden indirildi: {image_path}")
+                                                    success = True
+                                                    break
+                                                else:
+                                                    print(f"⚠️ Resim indirme başarısız. HTTP kodu: {image_response.status_code}. Yeniden deneniyor...")
+                                            except Exception as e:
+                                                print(f"⚠️ Resim indirme hatası: {str(e)}. Yeniden deneniyor...")
+                                                
+                                        if not success:
+                                            print("❌ Resim indirilemedi. Tüm denemeler başarısız oldu.")
+                                            # Alternatif yöntem: web.archive.org'den dene
+                                            try:
+                                                print("🔄 Archive.org üzerinden medya indirme deneniyor...")
+                                                archive_url = f"https://web.archive.org/web/0im_/{image_url}"
+                                                archive_response = requests.get(archive_url, headers=enhanced_headers)
+                                                
+                                                if archive_response.status_code == 200 and len(archive_response.content) > 5000:
+                                                    image_path = post_dir / f"{post_code}.jpg"
+                                                    with open(image_path, 'wb') as f:
+                                                        f.write(archive_response.content)
+                                                    print(f"✅ Resim archive.org üzerinden indirildi: {image_path}")
+                                                    success = True
+                                                else:
+                                                    print("❌ Archive.org üzerinden indirme başarısız.")
+                                            except Exception as e:
+                                                print(f"❌ Archive.org üzerinden indirme hatası: {str(e)}")
+                                            
+                                            if not success:
+                                                return False
                         except Exception as e:
                             print(f"⚠️ Meta etiket ayrıştırma hatası: {str(e)}")
                     
