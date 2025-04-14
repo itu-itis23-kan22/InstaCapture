@@ -579,8 +579,12 @@ class InstaStalkGUI(tk.Tk):
         self.tab_control.add(self.batch_tab, text="Toplu İndirme")
         
         # Öne Çıkan Hikayeler sekmesi
-        self.highlights_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.highlights_tab, text="Öne Çıkanlar")
+        self.highlight_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.highlight_tab, text="Öne Çıkanlar")
+        
+        # Cookies sekmesi (yeni eklenen)
+        self.cookies_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.cookies_tab, text="Cookies")
         
         # Log sekmesi
         self.log_tab = ttk.Frame(self.tab_control)
@@ -595,6 +599,7 @@ class InstaStalkGUI(tk.Tk):
         self.create_profile_tab()
         self.create_batch_tab()
         self.create_highlights_tab()
+        self.create_cookies_tab()  # Yeni eklenen
         self.create_log_tab()
     
     def create_story_tab(self):
@@ -725,7 +730,7 @@ class InstaStalkGUI(tk.Tk):
     def create_highlights_tab(self):
         """Öne çıkan hikayeler sekmesini oluştur."""
         # İçerik çerçevesi
-        content_frame = ttk.Frame(self.highlights_tab)
+        content_frame = ttk.Frame(self.highlight_tab)
         content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Başlık
@@ -784,6 +789,155 @@ class InstaStalkGUI(tk.Tk):
         self.highlights_result_text = scrolledtext.ScrolledText(content_frame, height=8)
         self.highlights_result_text.pack(fill=tk.BOTH, expand=True, pady=5)
         self.highlights_result_text.config(state=tk.DISABLED)
+    
+    def create_cookies_tab(self):
+        """Cookies sekmesini oluştur."""
+        content_frame = ttk.Frame(self.cookies_tab)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Başlık
+        title_label = ttk.Label(content_frame, text="Instagram Cookies Ayarları", style='Title.TLabel')
+        title_label.pack(pady=(0, 20))
+        
+        # Açıklama
+        instructions_frame = ttk.LabelFrame(content_frame, text="Cookies Nasıl Alınır")
+        instructions_frame.pack(fill=tk.X, pady=10)
+        
+        instructions_text = (
+            "1. Tarayıcıda Instagram.com'a giriş yapın\n"
+            "2. Geliştirici Araçlarını açın (F12 veya Ctrl+Shift+I)\n"
+            "3. Network sekmesine gidin\n"
+            "4. Instagram.com'u yenileyin\n"
+            "5. Herhangi bir isteği seçin\n"
+            "6. Headers (Başlıklar) tabını seçin\n"
+            "7. Request Headers bölümünde 'cookie' değerini bulun\n"
+            "8. Cookie değerinin tamamını kopyalayın\n\n"
+            "Cookie değeri şuna benzer olmalıdır:\n"
+            "mid=...; ig_did=...; ds_user_id=...; sessionid=...; csrftoken=..."
+        )
+        
+        instr_label = ttk.Label(instructions_frame, text=instructions_text, justify=tk.LEFT, wraplength=700)
+        instr_label.pack(padx=10, pady=10)
+        
+        # Cookies girişi ve kontrol
+        cookies_frame = ttk.LabelFrame(content_frame, text="Cookies Değeri")
+        cookies_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        # Mevcut cookies durumu
+        status_frame = ttk.Frame(cookies_frame)
+        status_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.cookies_status_var = tk.StringVar(value="Cookies durumu kontrol ediliyor...")
+        status_label = ttk.Label(status_frame, textvariable=self.cookies_status_var)
+        status_label.pack(side=tk.LEFT)
+        
+        self.update_cookies_status()
+        
+        # Cookies text alanı
+        self.cookies_text = scrolledtext.ScrolledText(cookies_frame, height=8, wrap=tk.WORD)
+        self.cookies_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Mevcut cookies değerini göster
+        if hasattr(self.stalker, 'cookies') and self.stalker.cookies:
+            cookie_str = '; '.join([f"{k}={v}" for k, v in self.stalker.cookies.items()])
+            self.cookies_text.insert(tk.END, cookie_str)
+        
+        # Butonlar
+        button_frame = ttk.Frame(cookies_frame)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        save_button = ttk.Button(button_frame, text="Cookies Kaydet", command=self.save_cookies_from_text)
+        save_button.pack(side=tk.LEFT, padx=5)
+        
+        clear_button = ttk.Button(button_frame, text="Temizle", command=lambda: self.cookies_text.delete(1.0, tk.END))
+        clear_button.pack(side=tk.LEFT, padx=5)
+        
+        test_button = ttk.Button(button_frame, text="Cookies Test Et", command=self.test_cookies)
+        test_button.pack(side=tk.LEFT, padx=5)
+        
+        # En altta cookies file yolu
+        if hasattr(self.stalker, 'cookies_file'):
+            path_label = ttk.Label(content_frame, text=f"Cookies dosyası: {self.stalker.cookies_file}", font=('Helvetica', 8))
+            path_label.pack(pady=(10, 0), anchor=tk.W)
+    
+    def update_cookies_status(self):
+        """Cookies durumunu güncelle"""
+        cookies = self.stalker.get_cookies_dict()
+        if not cookies:
+            self.cookies_status_var.set("❌ Cookies ayarlanmamış veya geçersiz")
+            return False
+        
+        if 'sessionid' not in cookies:
+            self.cookies_status_var.set("⚠️ Cookies mevcut fakat 'sessionid' eksik! Hikayeler görüntülenemeyebilir.")
+            return False
+        
+        self.cookies_status_var.set(f"✅ Cookies geçerli ({len(cookies)} cookie değeri kaydedilmiş)")
+        return True
+    
+    def save_cookies_from_text(self):
+        """Text alanından cookies değerini kaydeder"""
+        cookie_str = self.cookies_text.get(1.0, tk.END).strip()
+        if not cookie_str:
+            messagebox.showerror("Hata", "Cookies değeri boş olamaz!")
+            self.update_log("❌ Cookies değeri boş olduğu için kaydedilemedi.")
+            return
+        
+        success = self.stalker.set_cookies_from_string(cookie_str)
+        if success:
+            msg = f"✅ Cookies başarıyla kaydedildi: {self.stalker.cookies_file}"
+            messagebox.showinfo("Başarılı", msg)
+            self.update_status(msg)
+            self.update_log(msg)
+            self.update_cookies_status()
+            
+            # Cookies text alanını güncelle (formatlanmış hali ile)
+            self.cookies_text.delete(1.0, tk.END)
+            if hasattr(self.stalker, 'cookies') and self.stalker.cookies:
+                cookie_str = '; '.join([f"{k}={v}" for k, v in self.stalker.cookies.items()])
+                self.cookies_text.insert(tk.END, cookie_str)
+        else:
+            error_msg = "❌ Cookies kaydedilirken bir hata oluştu! Formatı kontrol edin."
+            messagebox.showerror("Hata", error_msg)
+            self.update_log(error_msg)
+    
+    def test_cookies(self):
+        """Cookies'i test eder"""
+        cookie_str = self.cookies_text.get(1.0, tk.END).strip()
+        if not cookie_str:
+            messagebox.showerror("Hata", "Cookies değeri boş olamaz!")
+            return
+        
+        # Geçici olarak cookies'i ayarla (kaydetmeden)
+        cookies = {}
+        cookie_pairs = cookie_str.split(";")
+        for pair in cookie_pairs:
+            if "=" in pair:
+                key, value = pair.strip().split("=", 1)
+                cookies[key] = value
+        
+        self.update_log("🔍 Cookies test ediliyor...")
+        
+        # Test için basit bir istek yap
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get("https://www.instagram.com/", headers=headers, cookies=cookies)
+            
+            if response.status_code == 200:
+                self.update_log("✅ Cookies testi başarılı! Instagram.com'a erişilebildi.")
+                messagebox.showinfo("Test Başarılı", "Cookies testi başarılı! Instagram.com'a erişilebildi.")
+                
+                # Cookies'te sessionid var mı kontrol et
+                if 'sessionid' not in cookies:
+                    self.update_log("⚠️ Dikkat: 'sessionid' cookie'si bulunamadı. Hikayeler görüntülenemeyebilir.")
+                    messagebox.showwarning("Uyarı", "Cookies çalışıyor, ancak 'sessionid' cookie'si bulunamadı.\nBu olmadan hikayeler görüntülenemeyebilir.")
+            else:
+                self.update_log(f"❌ Cookies testi başarısız! HTTP Durum Kodu: {response.status_code}")
+                messagebox.showerror("Test Başarısız", f"Cookies testi başarısız! HTTP Durum Kodu: {response.status_code}")
+        except Exception as e:
+            self.update_log(f"❌ Cookies testi sırasında hata: {str(e)}")
+            messagebox.showerror("Test Hatası", f"Cookies testi sırasında hata oluştu: {str(e)}")
     
     def create_log_tab(self):
         """Log sekmesini oluştur."""
@@ -1096,13 +1250,23 @@ class InstaStalkGUI(tk.Tk):
     
     def refresh_language(self, event=None):
         """Dil değişikliğinde UI metinlerini güncelle."""
-        # Tab başlıkları
+        # Ana menü öğelerini güncelle
+        self.file_menu.entryconfigure(0, label=self._("set_cookies") if "set_cookies" in TRANSLATIONS[self.lang_var.get()] else "Set Cookies")
+        self.file_menu.entryconfigure(2, label=self._("exit") if "exit" in TRANSLATIONS[self.lang_var.get()] else "Exit")
+        
+        self.tools_menu.entryconfigure(0, label=self._("list_downloads") if "list_downloads" in TRANSLATIONS[self.lang_var.get()] else "List Downloads")
+        self.tools_menu.entryconfigure(1, label=self._("clean_downloads") if "clean_downloads" in TRANSLATIONS[self.lang_var.get()] else "Clean All Downloads")
+        
+        self.help_menu.entryconfigure(0, label=self._("about") if "about" in TRANSLATIONS[self.lang_var.get()] else "About")
+        
+        # Tab'ları güncelle
         self.tab_control.tab(0, text=self._("tab_stories") if "tab_stories" in TRANSLATIONS[self.lang_var.get()] else "Hikayeler")
         self.tab_control.tab(1, text=self._("tab_posts") if "tab_posts" in TRANSLATIONS[self.lang_var.get()] else "Gönderiler")
         self.tab_control.tab(2, text=self._("tab_profile") if "tab_profile" in TRANSLATIONS[self.lang_var.get()] else "Profil Resmi")
         self.tab_control.tab(3, text=self._("tab_batch") if "tab_batch" in TRANSLATIONS[self.lang_var.get()] else "Toplu İndirme")
         self.tab_control.tab(4, text=self._("tab_highlights") if "tab_highlights" in TRANSLATIONS[self.lang_var.get()] else "Öne Çıkanlar")
-        self.tab_control.tab(5, text=self._("tab_log") if "tab_log" in TRANSLATIONS[self.lang_var.get()] else "Log")
+        self.tab_control.tab(5, text=self._("tab_cookies") if "tab_cookies" in TRANSLATIONS[self.lang_var.get()] else "Cookies")
+        self.tab_control.tab(6, text=self._("tab_log") if "tab_log" in TRANSLATIONS[self.lang_var.get()] else "Log")
     
     def on_close(self):
         """Uygulama kapatılırken yapılacak işlemler."""
