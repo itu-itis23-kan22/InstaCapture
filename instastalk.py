@@ -1263,7 +1263,7 @@ class InstaStalker:
 
                 # Son çare - meta etiketlerinden post verisi ekstra
                 if not post_data:
-                    print("🔍 Meta etiketlerini kontrol ediliyor...")
+                    print("🔍 Meta etiketlerinden veri çıkarılıyor...")
                     # Meta etiketlerindeki resim ve video URL'lerini bul
                     image_url = None
                     video_url = None
@@ -1290,25 +1290,47 @@ class InstaStalker:
                 # Direct media URL pattern check
                 print("🔍 Direkt medya URL'leri kontrol ediliyor...")
                 
-                # Instagram post ve medya URL'leri genellikle belirli formatlarda olur
-                # Profil resimlerini filtreleyeceğiz
-                media_urls_images = re.findall(r'https://scontent[^"\']+\.jpg[^"\']*', html_content)
-                media_urls_videos = re.findall(r'https://scontent[^"\']+\.mp4[^"\']*', html_content)
+                # Instagram post ve medya URL'leri için gelişmiş arama
+                # Instagram'ın yüksek çözünürlüklü resim URL'leri genellikle bu deseni izler
+                media_urls_images = re.findall(r'https://[^"\s]+\.cdninstagram\.com/[^"\s]+/t51\.[^"\s]+\d+_n\.jpg[^"\s]*', html_content)
+                
+                if not media_urls_images:
+                    # Alternatif URL desenleri
+                    media_urls_images = re.findall(r'https://[^"\s]+\.cdninstagram\.com/[^"\s]+/e35/[^"\s]+\.jpg[^"\s]*', html_content)
+                
+                if not media_urls_images:
+                    # Genel URL deseni
+                    media_urls_images = re.findall(r'https://[^"\s]+\.cdninstagram\.com/[^"\s]+\.jpg[^"\s]*', html_content)
+                
+                # Video URL'leri için özel arama
+                media_urls_videos = re.findall(r'https://[^"\s]+\.cdninstagram\.com/[^"\s]+\.mp4[^"\s]*', html_content)
                 
                 # Profil resimlerini filtrele
                 filtered_images = []
                 for img_url in media_urls_images:
-                    # Profil fotoğraflarına özgü URL parçaları genellikle bunlardır
+                    # Profil fotoğraflarına özgü URL parçaları
                     if not any(pattern in img_url.lower() for pattern in [
                         "profile_pic", 
                         "/p/p", 
                         "/pp/",
                         "/profiles/",
                         "_profile_",
-                        "profilepics"
+                        "profilepics",
+                        "s150x150",
+                        "s320x320"
                     ]):
-                        # Ayrıca post içeriği genellikle daha büyük boyutlu olur (işaret: x1080)
-                        if any(res in img_url for res in ["1080", "1024", "720"]):
+                        # Instagram post resimlerinin desenleri
+                        if any(pattern in img_url for pattern in [
+                            "t51.", 
+                            "/e35/", 
+                            "_n.jpg", 
+                            "_e35_",
+                            "_e15_",
+                            "s1080x1080",
+                            "s1080x607",
+                            "s640x640",
+                            "s720x720"
+                        ]):
                             filtered_images.append(img_url)
                 
                 # Filtrelenmiş sonuçları kullan
@@ -1390,18 +1412,18 @@ class InstaStalker:
                 download_successful = False
                 og_image_match = re.search(r'<meta property="og:image" content="([^"]+)"', html_content)
                 if og_image_match:
-                    og_image_url = og_image_match.group(1)
+                    og_image_url = og_image_match.group(1).replace("&amp;", "&")
                     try:
-                        print(f"🔍 Meta tag'inden resim indiriliyor: {og_image_url}")
+                        print(f"🔍 Ana gönderi resmini indirme girişimi: {og_image_url}")
                         img_response = requests.get(og_image_url, headers=headers)
                         if img_response.status_code == 200 and len(img_response.content) > 5000:
-                            img_path = post_dir / "og_image.jpg"
+                            img_path = post_dir / "post_main_image.jpg"
                             with open(img_path, "wb") as f:
                                 f.write(img_response.content)
-                            print(f"✅ Meta resmi başarıyla indirildi")
+                            print(f"✅ Ana gönderi resmi başarıyla indirildi")
                             download_successful = True
                     except Exception as e:
-                        print(f"❌ Meta resim indirme hatası: {str(e)}")
+                        print(f"❌ Ana gönderi resmi indirme hatası: {str(e)}")
                 
                 # HTML'den tüm olası medya URL'lerini çıkar
                 all_image_patterns = [
@@ -1451,8 +1473,8 @@ class InstaStalker:
                                 all_video_urls.append(match)
                 
                 # URL'leri temizle
-                all_image_urls = [url.replace('\\u0026', '&') for url in all_image_urls]
-                all_video_urls = [url.replace('\\u0026', '&') for url in all_video_urls]
+                all_image_urls = [url.replace('\\u0026', '&').replace("&amp;", "&") for url in all_image_urls]
+                all_video_urls = [url.replace('\\u0026', '&').replace("&amp;", "&") for url in all_video_urls]
                 
                 # Tekrarlananları kaldır
                 all_image_urls = list(set(all_image_urls))
@@ -1462,8 +1484,32 @@ class InstaStalker:
                 all_image_urls = [url for url in all_image_urls if url.startswith(('http://', 'https://')) and len(url) > 20]
                 all_video_urls = [url for url in all_video_urls if url.startswith(('http://', 'https://')) and len(url) > 20]
                 
+                # Post resimlerini profil resimlerinden ayırt etmek için filtrele
+                post_image_urls = []
+                for img_url in all_image_urls:
+                    # Profil fotoğraflarına özgü URL parçaları
+                    if not any(pattern in img_url.lower() for pattern in [
+                        "profile_pic", 
+                        "/p/p", 
+                        "/pp/",
+                        "/profiles/",
+                        "_profile_",
+                        "s150x150",
+                        "s320x320"
+                    ]) and any(pattern in img_url for pattern in [
+                        "cdninstagram",
+                        "fbcdn",
+                        "t51.", 
+                        "_n.jpg", 
+                        "_e35",
+                        "s1080x1080",
+                        "s640x640",
+                        "s720x720"
+                    ]):
+                        post_image_urls.append(img_url)
+                
                 # En büyük resimler için Instagram CDN URL'lerini seç
-                instagram_cdn_urls = [url for url in all_image_urls if 'cdninstagram.com' in url or 'fbcdn.net' in url]
+                instagram_cdn_urls = [url for url in post_image_urls if 'cdninstagram.com' in url or 'fbcdn.net' in url]
                 if instagram_cdn_urls:
                     all_image_urls = instagram_cdn_urls
                 
@@ -1472,30 +1518,27 @@ class InstaStalker:
                     if not post_data:
                         post_data = {}
                     
-                    # Post resimlerini profil resimlerinden ayırt etmek için boyut kontrolü
-                    # Genellikle post resimleri daha büyük olur - 150x150 formatında olmayanlar gerçek post içeriği olabilir
-                    large_images = [url for url in all_image_urls 
-                                   if not any(pattern in url.lower() for pattern in [
-                                       "150x150", 
-                                       "profile_pic", 
-                                       "/p/p", 
-                                       "/pp/",
-                                       "/profiles/",
-                                       "_profile_"
-                                   ])]
+                    # Ana og:image'i her zaman direkt resim listesinin başına ekle
+                    direct_images = []
+                    if og_image_match:
+                        og_image_url = og_image_match.group(1).replace("&amp;", "&")
+                        if og_image_url not in direct_images:
+                            direct_images.append(og_image_url)
                     
-                    # Eğer post resimleri bulunursa onları kullan, bulunamazsa orijinal listeyi kullan
-                    if large_images:
-                        post_data["direct_images"] = list(set(post_data.get("direct_images", []) + large_images))
-                    else:
-                        post_data["direct_images"] = list(set(post_data.get("direct_images", []) + all_image_urls))
+                    # Diğer bulunan post resimlerini ekle
+                    direct_images.extend([url for url in post_image_urls if url not in direct_images])
                     
-                    post_data["direct_videos"] = list(set(post_data.get("direct_videos", []) + all_video_urls))
+                    # Carousel resimlerini ekle
+                    for url in carousel_images:
+                        clean_url = url.replace("\\u0026", "&").replace("&amp;", "&")
+                        if clean_url not in direct_images:
+                            direct_images.append(clean_url)
+                    
+                    post_data["direct_images"] = direct_images
+                    post_data["direct_videos"] = list(set(post_data.get("direct_videos", []) + all_video_urls + carousel_videos))
+                    
                     print(f"✅ Regex paternlerinden {len(all_image_urls)} resim, {len(all_video_urls)} video URL'si bulundu")
-                    
-                    # Kaç post medya içeriği kaldı onu göster
-                    if large_images:
-                        print(f"✅ Filtreleme sonrası {len(large_images)} gerçek post içeriği bulundu")
+                    print(f"✅ Filtreleme sonrası {len(direct_images)} gerçek post içeriği bulundu")
                 
                 if download_successful:
                     duration = time.time() - start_time
@@ -1509,6 +1552,15 @@ class InstaStalker:
                 if post_data:
                     # Resimleri indir
                     if "direct_images" in post_data and post_data["direct_images"]:
+                        # URL'leri göster
+                        if len(post_data["direct_images"]) > 0:
+                            print(f"🔍 İndirmeye hazır post resimleri:")
+                            for i, url in enumerate(post_data["direct_images"][:3]):
+                                print(f"  {i+1}. {url[:70]}...")
+                            if len(post_data["direct_images"]) > 3:
+                                print(f"  ...ve {len(post_data['direct_images']) - 3} resim daha")
+                        
+                        # Her resmi indir
                         for i, img_url in enumerate(post_data["direct_images"]):
                             try:
                                 img_response = requests.get(img_url, headers=headers)
@@ -1516,7 +1568,7 @@ class InstaStalker:
                                     img_path = post_dir / f"image_{i+1}.jpg"
                                     with open(img_path, "wb") as f:
                                         f.write(img_response.content)
-                                    print(f"✅ Resim {i+1} indirildi")
+                                    print(f"✅ Resim {i+1} indirildi ({len(img_response.content)/1024:.1f} KB)")
                                     download_successful = True
                             except Exception as e:
                                 print(f"❌ Resim {i+1} indirilemedi: {str(e)}")
@@ -1530,7 +1582,7 @@ class InstaStalker:
                                     vid_path = post_dir / f"video_{i+1}.mp4"
                                     with open(vid_path, "wb") as f:
                                         f.write(vid_response.content)
-                                    print(f"✅ Video {i+1} indirildi")
+                                    print(f"✅ Video {i+1} indirildi ({len(vid_response.content)/1024/1024:.1f} MB)")
                                     download_successful = True
                             except Exception as e:
                                 print(f"❌ Video {i+1} indirilemedi: {str(e)}")
