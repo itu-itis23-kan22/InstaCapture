@@ -1344,6 +1344,24 @@ class InstaStalker:
                     r'"carousel":\s*\[(.*?)\]'
                 ]
                 
+                # Daha geniş URL kalıpları ekleyelim
+                display_url_patterns = [
+                    r'"display_url":"([^"]+)"',
+                    r'"display_src":"([^"]+)"',
+                    r'"url":"(https:[^"]+\.(jpg|jpeg|png)[^"]*)"',
+                    r'"src":"(https:[^"]+\.(jpg|jpeg|png)[^"]*)"',
+                    r'"image_versions2":\s*{"candidates":\s*\[\s*{"url":\s*"([^"]+)"',
+                    r'"thumbnail_src":"([^"]+)"',
+                    r'"image_url":"([^"]+)"'
+                ]
+                
+                video_url_patterns = [
+                    r'"video_url":"([^"]+)"',
+                    r'"video_src":"([^"]+)"',
+                    r'"contentUrl":"([^"]+\.(mp4|mov)[^"]*)"',
+                    r'"video_versions":\s*\[\s*{"type":\s*\d+,\s*"url":\s*"([^"]+)"'
+                ]
+                
                 carousel_images = []
                 carousel_videos = []
                 
@@ -1353,13 +1371,43 @@ class InstaStalker:
                         print(f"✅ Carousel yapısı tespit edildi")
                         for carousel_data in carousel_matches:
                             # Carousel içindeki görüntü URL'lerini bul
-                            carousel_imgs = re.findall(r'"display_url":"([^"]+)"', carousel_data)
-                            carousel_vids = re.findall(r'"video_url":"([^"]+)"', carousel_data)
+                            for img_pattern in display_url_patterns:
+                                carousel_imgs = re.findall(img_pattern, carousel_data)
+                                if carousel_imgs:
+                                    for match in carousel_imgs:
+                                        if isinstance(match, tuple):
+                                            carousel_images.append(match[0])
+                                        else:
+                                            carousel_images.append(match)
                             
-                            carousel_images.extend([url.replace('\\u0026', '&') for url in carousel_imgs])
-                            carousel_videos.extend([url.replace('\\u0026', '&') for url in carousel_vids])
+                            # Carousel içindeki video URL'lerini bul
+                            for vid_pattern in video_url_patterns:
+                                carousel_vids = re.findall(vid_pattern, carousel_data)
+                                if carousel_vids:
+                                    for match in carousel_vids:
+                                        if isinstance(match, tuple):
+                                            carousel_videos.append(match[0])
+                                        else:
+                                            carousel_videos.append(match)
+                        
+                        # URL'leri temizle
+                        carousel_images = [url.replace('\\u0026', '&').replace("&amp;", "&") for url in carousel_images]
+                        carousel_videos = [url.replace('\\u0026', '&').replace("&amp;", "&") for url in carousel_videos]
+                        
+                        # Tekrarlananları kaldır
+                        carousel_images = list(set(carousel_images))
+                        carousel_videos = list(set(carousel_videos))
                             
-                            print(f"✅ Carousel'den {len(carousel_imgs)} resim, {len(carousel_vids)} video URL'si eklendi")
+                        print(f"✅ Carousel'den {len(carousel_images)} resim, {len(carousel_videos)} video URL'si eklendi")
+                        
+                        # Carousel resim URL'lerini değiştir - tam boyut için
+                        optimized_carousel_images = []
+                        for img_url in carousel_images:
+                            # Instagram URL'lerini optimize et
+                            optimized_url = self._optimize_instagram_url(img_url)
+                            optimized_carousel_images.append(optimized_url)
+                        
+                        carousel_images = optimized_carousel_images
 
                 all_image_urls = []
                 all_video_urls = []
@@ -1518,21 +1566,25 @@ class InstaStalker:
                     if not post_data:
                         post_data = {}
                     
-                    # Ana og:image'i her zaman direkt resim listesinin başına ekle
+                    # Ana og:image'i optimize et ve ekle
                     direct_images = []
                     if og_image_match:
                         og_image_url = og_image_match.group(1).replace("&amp;", "&")
+                        # Tam boyut için URL'yi optimize et
+                        og_image_url = self._optimize_instagram_url(og_image_url)
                         if og_image_url not in direct_images:
                             direct_images.append(og_image_url)
                     
                     # Diğer bulunan post resimlerini ekle
-                    direct_images.extend([url for url in post_image_urls if url not in direct_images])
+                    for url in post_image_urls:
+                        optimized_url = self._optimize_instagram_url(url)
+                        if optimized_url not in direct_images:
+                            direct_images.append(optimized_url)
                     
-                    # Carousel resimlerini ekle
+                    # Carousel resimlerini ekle - bunlar zaten optimize edildi
                     for url in carousel_images:
-                        clean_url = url.replace("\\u0026", "&").replace("&amp;", "&")
-                        if clean_url not in direct_images:
-                            direct_images.append(clean_url)
+                        if url not in direct_images:
+                            direct_images.append(url)
                     
                     post_data["direct_images"] = direct_images
                     post_data["direct_videos"] = list(set(post_data.get("direct_videos", []) + all_video_urls + carousel_videos))
@@ -1619,6 +1671,42 @@ class InstaStalker:
                     shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
+
+    def _optimize_instagram_url(self, url):
+        """Instagram URL'lerini tam boyutlu resimleri alacak şekilde optimize eder."""
+        if not url or not isinstance(url, str):
+            return url
+            
+        # URL'yi temizle
+        url = url.replace('\\u0026', '&').replace("&amp;", "&")
+        
+        # Instagram CDN URL'lerini kontrol et
+        if 'cdninstagram.com' in url or 'fbcdn.net' in url:
+            # Boyut parametrelerini kaldır veya en yüksek çözünürlüğe ayarla
+            # Örn: s640x640 -> s1080x1080
+            url = re.sub(r's\d+x\d+', 's1080x1080', url)
+            
+            # Kırpma parametrelerini kaldır
+            url = re.sub(r'c\d+\.\d+\.\d+\.\d+a_', '', url)
+            
+            # Instagram URL'sindeki bazı gereksiz parametreleri kaldır
+            url = re.sub(r'&_nc_cat=\d+', '', url)
+            url = re.sub(r'&_nc_sid=[a-zA-Z0-9]+', '', url)
+            url = re.sub(r'&_nc_ohc=[a-zA-Z0-9]+', '', url)
+            url = re.sub(r'&ccb=\d+-\d+', '', url)
+            
+            # Kalıcı URL'yi elde etmek için stp parametrelerini kaldır
+            url = re.sub(r'\?stp=.*', '', url)
+            
+            # Kaliteli yeniden boyutlandırma
+            if '_e35_' in url:
+                url = url.replace('_e35_', '_e85_')  # Daha yüksek kalite için
+                
+            # Maksimum kalite için
+            if not '_nc_ht=' in url:
+                url = url + '&_nc_ht=scontent.cdninstagram.com'
+        
+        return url
 
     def show_menu(self):
         """Ana menüyü göster."""
