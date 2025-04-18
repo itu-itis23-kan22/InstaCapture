@@ -1289,7 +1289,30 @@ class InstaStalker:
                 
                 # Direct media URL pattern check
                 print("🔍 Direkt medya URL'leri kontrol ediliyor...")
-                # ... existing code ...
+                
+                # Instagram post ve medya URL'leri genellikle belirli formatlarda olur
+                # Profil resimlerini filtreleyeceğiz
+                media_urls_images = re.findall(r'https://scontent[^"\']+\.jpg[^"\']*', html_content)
+                media_urls_videos = re.findall(r'https://scontent[^"\']+\.mp4[^"\']*', html_content)
+                
+                # Profil resimlerini filtrele
+                filtered_images = []
+                for img_url in media_urls_images:
+                    # Profil fotoğraflarına özgü URL parçaları genellikle bunlardır
+                    if not any(pattern in img_url.lower() for pattern in [
+                        "profile_pic", 
+                        "/p/p", 
+                        "/pp/",
+                        "/profiles/",
+                        "_profile_",
+                        "profilepics"
+                    ]):
+                        # Ayrıca post içeriği genellikle daha büyük boyutlu olur (işaret: x1080)
+                        if any(res in img_url for res in ["1080", "1024", "720"]):
+                            filtered_images.append(img_url)
+                
+                # Filtrelenmiş sonuçları kullan
+                media_urls_images = filtered_images
 
                 # Carousel/Sidecar kontrolü için ek tarama
                 print("🔍 Carousel gönderisi kontrolü yapılıyor...")
@@ -1315,10 +1338,7 @@ class InstaStalker:
                             carousel_videos.extend([url.replace('\\u0026', '&') for url in carousel_vids])
                             
                             print(f"✅ Carousel'den {len(carousel_imgs)} resim, {len(carousel_vids)} video URL'si eklendi")
-                
-                media_urls_images = re.findall(r'https://scontent[^"\']+\.jpg[^"\']*', html_content)
-                media_urls_videos = re.findall(r'https://scontent[^"\']+\.mp4[^"\']*', html_content)
-                
+
                 all_image_urls = []
                 all_video_urls = []
                 
@@ -1451,9 +1471,31 @@ class InstaStalker:
                 if all_image_urls or all_video_urls:
                     if not post_data:
                         post_data = {}
-                    post_data["direct_images"] = list(set(post_data.get("direct_images", []) + all_image_urls))
+                    
+                    # Post resimlerini profil resimlerinden ayırt etmek için boyut kontrolü
+                    # Genellikle post resimleri daha büyük olur - 150x150 formatında olmayanlar gerçek post içeriği olabilir
+                    large_images = [url for url in all_image_urls 
+                                   if not any(pattern in url.lower() for pattern in [
+                                       "150x150", 
+                                       "profile_pic", 
+                                       "/p/p", 
+                                       "/pp/",
+                                       "/profiles/",
+                                       "_profile_"
+                                   ])]
+                    
+                    # Eğer post resimleri bulunursa onları kullan, bulunamazsa orijinal listeyi kullan
+                    if large_images:
+                        post_data["direct_images"] = list(set(post_data.get("direct_images", []) + large_images))
+                    else:
+                        post_data["direct_images"] = list(set(post_data.get("direct_images", []) + all_image_urls))
+                    
                     post_data["direct_videos"] = list(set(post_data.get("direct_videos", []) + all_video_urls))
                     print(f"✅ Regex paternlerinden {len(all_image_urls)} resim, {len(all_video_urls)} video URL'si bulundu")
+                    
+                    # Kaç post medya içeriği kaldı onu göster
+                    if large_images:
+                        print(f"✅ Filtreleme sonrası {len(large_images)} gerçek post içeriği bulundu")
                 
                 if download_successful:
                     duration = time.time() - start_time
