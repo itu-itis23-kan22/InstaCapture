@@ -1526,3 +1526,81 @@ class InstaStalker:
             except Exception:
                 pass
 
+    def show_menu(self):
+        """Ana menüyü göster."""
+        print(self._("app_title"))
+        while True:
+            try:
+                print("\n" + self._("app_name"))
+                print(self._("menu_download_story"))
+                print(self._("menu_download_post"))
+                print(self._("menu_download_profile"))
+                print(self._("menu_batch_download"))
+                print(self._("menu_set_cookies"))
+                print(self._("menu_list_downloads"))
+                print(self._("menu_clean"))
+                print(self._("menu_lang"))
+                print(self._("menu_exit"))
+                
+                choice = input(self._("menu_choice")).strip()
+                
+                if choice == "1":
+                    username = input(self._("username_prompt")).strip()
+                    if username:
+                        self.download_story(username)
+                
+                elif choice == "2":
+                    post_url = input(self._("post_url_prompt")).strip()
+                    if post_url:
+                        self.download_post(post_url)
+                
+                elif choice == "3":
+                    username = input(self._("username_prompt")).strip()
+                    if username:
+                        self.download_profile_pic(username)
+                
+                elif choice == "4":
+                    username = input(self._("batch_username_prompt")).strip()
+                    if username:
+                        self.batch_download(username)
+                
+                elif choice == "5":
+                    self.get_interactive_cookies()
+                
+                elif choice == "6":
+                    self.list_downloaded_files()
+                
+                elif choice == "7":
+                    confirm = input(self._("clean_confirm")).strip().lower()
+                    if confirm == self._("yes_short"):
+                        # Tüm içerik klasörlerini temizle
+                        for folder in self.content_types.values():
+                            shutil.rmtree(folder, ignore_errors=True)
+                            folder.mkdir(exist_ok=True)
+                        print(self._("clean_success"))
+                    else:
+                        print(self._("clean_cancel"))
+                
+                elif choice == "8":
+                    self.change_language()
+                
+                elif choice == "9":
+                    print(self._("exit_message"))
+                    break
+                
+                else:
+                    print(self._("invalid_choice"))
+            
+            except KeyboardInterrupt:
+                print(self._("interrupt_message"))
+                break
+            
+            except Exception as e:
+                print(self._("unexpected_error", str(e)))
+
+
+# Ana uygulamayı başlat
+if __name__ == "__main__":
+    stalker = InstaStalker()
+    stalker.show_menu()
+
