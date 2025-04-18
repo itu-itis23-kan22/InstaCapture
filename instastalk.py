@@ -15,6 +15,16 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import uuid
+import tempfile
+import traceback
+import gzip
+try:
+    import brotli
+except ImportError:
+    print("Installing brotli library...")
+    import subprocess
+    subprocess.check_call(["pip", "install", "brotli"])
+    import brotli
 
 try:
     from instacapture import InstaStory, InstaPost
@@ -134,11 +144,11 @@ TRANSLATIONS = {
         "highlight_item": "  {0}. {1} ({2} hikaye)",
         "highlight_choice": "\nİndirmek istediğiniz öne çıkan hikayeyi seçin (0: İptal): ",
         "highlight_all": "  A. Tüm öne çıkan hikayeleri indir",
-        "downloading_highlight": "\n⏳ '{0}' öne çıkan hikayesi indiriliyor...",
-        "highlight_success": "✅ '{0}' öne çıkan hikayesi indirildi ({1} hikaye)",
-        "highlight_saved": "\nÖne çıkan hikayeler '{0}' klasörüne kaydedildi",
-        "highlight_error": "❌ Öne çıkan hikayeler indirilirken bir hata oluştu: {0}",
-        "highlight_cancel": "ℹ️ İşlem iptal edildi.",
+        "downloading_highlight": "\n⏳ Downloading highlight '{0}'...",
+        "highlight_success": "✅ Downloaded highlight '{0}' ({1} stories)",
+        "highlight_saved": "\nHighlight stories saved to '{0}' folder",
+        "highlight_error": "❌ Error downloading highlight stories: {0}",
+        "highlight_cancel": "ℹ️ Operation canceled.",
     },
     "en": {
         "app_title": "📲 InstaStalker - Instagram Content Downloader Tool",
@@ -660,798 +670,6 @@ class InstaStalker:
             print(self._("story_error", str(e)))
             return False
     
-    def download_post(self, post_url):
-        """Belirtilen gönderiyi veya reeli indir."""
-        temp_dir = Path("./temp_post")
-        try:
-            # Post kodunu URL'den çıkar
-            if "/" in post_url:
-                # URL formatındaysa, farklı desenlerle eşleştirmeyi dene
-                post_match = re.search(r'instagram\.com/(?:p|reel|tv)/([^/?]+)', post_url)
-                if post_match:
-                    post_code = post_match.group(1)
-                # Instagram kısa URL'leri için (instagram.com/p/CODE)
-                elif re.search(r'instagram\.com/p/([^/?]+)', post_url):
-                    post_code = re.search(r'instagram\.com/p/([^/?]+)', post_url).group(1)
-                # Reel kısa URL'leri için (instagram.com/reel/CODE)
-                elif re.search(r'instagram\.com/reel/([^/?]+)', post_url):
-                    post_code = re.search(r'instagram\.com/reel/([^/?]+)', post_url).group(1)
-                # IGTV URL'leri için (instagram.com/tv/CODE)
-                elif re.search(r'instagram\.com/tv/([^/?]+)', post_url):
-                    post_code = re.search(r'instagram\.com/tv/([^/?]+)', post_url).group(1)
-                # Mobil URL'ler için (instagram.com/reels/CODE)
-                elif re.search(r'instagram\.com/reels/([^/?]+)', post_url):
-                    post_code = re.search(r'instagram\.com/reels/([^/?]+)', post_url).group(1)
-                # Son çare olarak, URL'nin son parçasını kullan
-                else:
-                    # URL'nin son kısmını al ve query parametrelerini kaldır
-                    post_code = post_url.split('/')[-1]
-                    if '?' in post_code:
-                        post_code = post_code.split('?')[0]
-            else:
-                # Sadece kod girilmişse
-                post_code = post_url
-            
-            # Post kodunun geçerli olup olmadığını kontrol et
-            if not post_code or len(post_code) < 5:
-                print(self._("post_error", "Invalid post code format"))
-                return False
-                
-            # Özel karakterleri temizle
-            post_code = post_code.strip()
-            
-            # Geçici klasör oluştur
-            temp_dir.mkdir(exist_ok=True)
-            
-            # InstaPost nesnesi oluştur
-            post_obj = InstaPost()
-            post_obj.cookies = self.cookies
-            
-            # InstaCapture kütüphanesi için ilgili diğer attributes
-            # cookies'i farklı bir formatta (dict olarak) bekliyorsa bunu da sağlayalım
-            if hasattr(post_obj, 'cookies_dict'):
-                post_obj.cookies_dict = self.cookies
-            
-            post_obj.reel_id = post_code
-            post_obj.folder_path = str(temp_dir)
-            
-            # İndirme başlangıcını göster
-            print(self._("downloading_post", post_code))
-            start_time = time.time()
-            
-            # Önce doğrudan URL ile deneme yapalım - Instagram API değişikliklerine karşı yedek bir çözüm
-            try:
-                # Doğrudan medya sayfasını getir
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": "https://www.instagram.com/",
-                    "Connection": "keep-alive",
-                    "Upgrade-Insecure-Requests": "1",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "same-origin",
-                    "Pragma": "no-cache",
-                    "Cache-Control": "no-cache",
-                }
-                
-                # Daha gerçekçi tarayıcı istekleri için ek headerlar
-                enhanced_headers = {
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Referer": "https://www.instagram.com/",
-                    "sec-ch-ua": "\"Not A(Brand\";v=\"99\", \"Google Chrome\";v=\"121\", \"Chromium\";v=\"121\"",
-                    "sec-ch-ua-mobile": "?0",
-                    "sec-ch-ua-platform": "\"macOS\"",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate", 
-                    "Sec-Fetch-Site": "cross-site",
-                    "Sec-Fetch-User": "?1",
-                    "Upgrade-Insecure-Requests": "1",
-                    "Priority": "high",
-                }
-                
-                # Instagram mobil kullanıcı ajanı - mobil sürümün engelleme olasılığı daha düşük
-                mobile_headers = {
-                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Connection": "keep-alive",
-                    "Upgrade-Insecure-Requests": "1",
-                }
-                
-                # İstek çerezlerini güçlendir - tüm önemli kimlik doğrulama çerezlerini içerecek şekilde
-                enriched_cookies = self.cookies.copy()
-                if 'ds_user_id' in enriched_cookies and 'sessionid' in enriched_cookies:
-                    # Instagram tarayıcı davranışını taklit et
-                    enriched_cookies['ig_did'] = enriched_cookies.get('ig_did', f'{uuid.uuid4()}')
-                    enriched_cookies['ig_nrcb'] = enriched_cookies.get('ig_nrcb', '1')
-                    enriched_cookies['rur'] = enriched_cookies.get('rur', 'RVA')
-                
-                # Önce post sayfasını çekelim (deneme Reel URL formatı)
-                post_url = f"https://www.instagram.com/p/{post_code}/"
-                response = requests.get(post_url, headers=headers, cookies=self.cookies)
-                
-                if response.status_code == 200:
-                    print("✅ Post sayfası başarıyla alındı, medya aranıyor...")
-                else:
-                    # Alternatif URL formatı dene (reel)
-                    post_url = f"https://www.instagram.com/reel/{post_code}/"
-                    response = requests.get(post_url, headers=headers, cookies=self.cookies)
-                    if response.status_code == 200:
-                        print("✅ Reel sayfası başarıyla alındı, medya aranıyor...")
-                    else:
-                        # Mobil sürümü dene - bazen mobil sayfa erişilebilir olur
-                        post_url = f"https://www.instagram.com/p/{post_code}/?__a=1&__d=dis"
-                        response = requests.get(post_url, headers=mobile_headers, cookies=enriched_cookies)
-                        if response.status_code == 200:
-                            print("✅ Mobil API sayfası başarıyla alındı, medya aranıyor...")
-            except Exception as e:
-                print(f"⚠️ Post sayfası alınırken hata: {str(e)}")
-            
-            # Gönderiyi indir
-            result = post_obj.media_download()
-            
-            # Hala sonuç yoksa, kendi çözümümüzü deneyelim
-            if not result:
-                print("⚠️ InstaCapture kütüphanesi ile post indirilemedi. Alternatif yöntem deneniyor...")
-                try:
-                    # Modern Instagram web uygulaması farklı veri katmanları kullanır:
-                    # 1. window._sharedData (klasik format)
-                    # 2. window.__additionalDataLoaded (yeni format)
-                    # 3. Dahili React veri yapıları
-                    # 4. Meta etiketleri
-
-                    # 1. Klasik _sharedData formatı
-                    matches = re.findall(r'window\._sharedData\s*=\s*({.*?});</script>', response.text)
-                    post_data = None
-                    username = None
-                    
-                    if matches:
-                        try:
-                            json_data = json.loads(matches[0])
-                            # Post verilerini çıkar
-                            post_data = json_data.get('entry_data', {}).get('PostPage', [{}])[0].get('graphql', {}).get('shortcode_media', {})
-                            
-                            if post_data:
-                                # Kullanıcı adını al
-                                username = post_data.get('owner', {}).get('username')
-                                print(f"✅ Post verisi _sharedData formatından alındı: {username}")
-                                
-                                if not username:
-                                    print("❌ Post sahibinin kullanıcı adı bulunamadı.")
-                        except Exception as e:
-                            print(f"⚠️ _sharedData ayrıştırma hatası: {str(e)}")
-                    
-                    # 2. Daha yeni __additionalDataLoaded formatı
-                    if not post_data:
-                        # Farklı varyasyonları dene - 'post' veya 'PostPage'
-                        patterns = [
-                            r'window\.__additionalDataLoaded\s*\(\s*[\'"]post[\'"],\s*({.*?})\);</script>',
-                            r'window\.__additionalDataLoaded\s*\(\s*[\'"]PostPage[\'"],\s*({.*?})\);</script>',
-                            r'window\.__additionalDataLoaded\s*\(\s*[\'"]p/[^\'\"]+[\'"],\s*({.*?})\);</script>'
-                        ]
-                        
-                        for pattern in patterns:
-                            matches2 = re.findall(pattern, response.text)
-                            if matches2:
-                                try:
-                                    additional_data = json.loads(matches2[0])
-                                    # Farklı veri yollarını dene
-                                    if 'graphql' in additional_data:
-                                        post_data = additional_data.get('graphql', {}).get('shortcode_media', {})
-                                    elif 'items' in additional_data and len(additional_data['items']) > 0:
-                                        post_data = additional_data['items'][0]
-                                    
-                                    if post_data:
-                                        # Farklı yollardan kullanıcı adını al
-                                        if 'owner' in post_data:
-                                            username = post_data.get('owner', {}).get('username')
-                                        elif 'user' in post_data:
-                                            username = post_data.get('user', {}).get('username')
-                                        
-                                        print(f"✅ Post verisi additionalDataLoaded formatından alındı: {username}")
-                                        break
-                                except Exception as e:
-                                    print(f"⚠️ additionalDataLoaded ayrıştırma hatası: {str(e)}")
-                    
-                    # 3. Yeni format: React yapılarındaki veri
-                    if not post_data:
-                        # Instagram React yapısının farklı varyasyonları
-                        react_patterns = [
-                            r'<script type="application/json" data-sjs>[^<]*({"require":\[.*?\]})</script>',
-                            r'<script type="application/json"[^>]*>({".*?"props":.*?})</script>',
-                            r'<script>window\.__bufferData\s*=\s*({.*?});</script>',
-                            r'<script type="application/json" id="server-app-state">(.*?)</script>'
-                        ]
-                        
-                        for pattern in react_patterns:
-                            react_match = re.search(pattern, response.text, re.DOTALL)
-                            if react_match:
-                                try:
-                                    react_data = json.loads(react_match.group(1))
-                                    print(f"✅ React veri formatı algılandı, veri araştırılıyor...")
-                                    
-                                    # React yapısından medya bilgilerini çıkarmaya çalış
-                                    # Mevcut yapıda kesin bir path olmadığı için JSON'ı tarayarak arıyoruz
-                                    
-                                    # JSON içinde kullanıcı adı arama fonksiyonu
-                                    def find_username_in_json(json_obj):
-                                        if isinstance(json_obj, dict):
-                                            if 'username' in json_obj:
-                                                return json_obj.get('username')
-                                            
-                                            for key, value in json_obj.items():
-                                                result = find_username_in_json(value)
-                                                if result:
-                                                    return result
-                                        elif isinstance(json_obj, list):
-                                            for item in json_obj:
-                                                result = find_username_in_json(item)
-                                                if result:
-                                                    return result
-                                        return None
-                                    
-                                    # JSON içinde medya bilgisi arama fonksiyonu
-                                    def find_media_in_json(json_obj):
-                                        if isinstance(json_obj, dict):
-                                            # Medya verileri içeren anahtar kontrolleri
-                                            if ('shortcode_media' in json_obj or 
-                                                'video_url' in json_obj or 
-                                                'display_url' in json_obj or
-                                                'is_video' in json_obj):
-                                                return json_obj
-                                            
-                                            for key, value in json_obj.items():
-                                                result = find_media_in_json(value)
-                                                if result:
-                                                    return result
-                                        elif isinstance(json_obj, list):
-                                            for item in json_obj:
-                                                result = find_media_in_json(item)
-                                                if result:
-                                                    return result
-                                        return None
-                                    
-                                    # Veri içerisinde kullanıcı adını ara
-                                    username = find_username_in_json(react_data)
-                                    if username:
-                                        print(f"✅ React verilerinden kullanıcı adı bulundu: {username}")
-                                    
-                                    # Medya verilerini ara
-                                    media_data = find_media_in_json(react_data)
-                                    if media_data:
-                                        print(f"✅ React verilerinden medya bilgileri bulundu")
-                                        post_data = media_data
-                                    
-                                except Exception as e:
-                                    print(f"⚠️ React veri ayrıştırma hatası: {str(e)}")
-                    
-                    # 4. Meta etiketlerinden veri çıkarma (son çare)
-                    if not post_data or not username:
-                        try:
-                            # Kullanıcı adını meta etiketlerinden al
-                            username_match = re.search(r'<meta property="og:url" content="https://www.instagram.com/([^/]+)/[^"]+"', response.text)
-                            if not username_match:
-                                # Alternatif pattern
-                                username_match = re.search(r'instagram\.com/([^/]+)/(?:p|reel)/', response.text)
-                            
-                            extracted_username = None
-                            if username_match:
-                                extracted_username = username_match.group(1)
-                                # "p" ve "reel" gibi path parçalarını username olarak kabul etme
-                                if extracted_username in ["p", "reel", "tv"]:
-                                    # Gerçek kullanıcı adını bulmak için farklı yöntemler dene
-                                    # Instagram'ın yeni markup yapısında kullanıcı adı bulmayı dene
-                                    username_alt_match = re.search(r'<meta property="og:title" content="([^"]+) on Instagram:', response.text)
-                                    if username_alt_match:
-                                        extracted_username = username_alt_match.group(1)
-                                    else:
-                                        # Farklı bir meta etiketi dene
-                                        username_alt_match = re.search(r'<meta property="og:description" content="([^"]+) on Instagram:', response.text)
-                                        if username_alt_match:
-                                            extracted_username = username_alt_match.group(1)
-                                    
-                                    # Hala bulunamadıysa, genel bir ad ata
-                                    if extracted_username in ["p", "reel", "tv"]:
-                                        extracted_username = "instagram_user"
-                                
-                                username = extracted_username
-                                print(f"✅ Kullanıcı adı meta etiketlerinden alındı: {username}")
-                                
-                                # Görsel URL'sini al
-                                image_url_match = re.search(r'<meta property="og:image" content="([^"]+)"', response.text)
-                                if not image_url_match:
-                                    # Twitter kart meta etiketleri
-                                    image_url_match = re.search(r'<meta name="twitter:image" content="([^"]+)"', response.text)
-                                
-                                if not image_url_match:
-                                    # JSON-LD data içinde ara
-                                    jsonld_match = re.search(r'<script type="application/ld\+json">([^<]+)</script>', response.text)
-                                    if jsonld_match:
-                                        try:
-                                            jsonld_data = json.loads(jsonld_match.group(1))
-                                            if isinstance(jsonld_data, dict) and "image" in jsonld_data:
-                                                image_url = jsonld_data["image"]
-                                                if isinstance(image_url, list) and len(image_url) > 0:
-                                                    image_url = image_url[0]
-                                                if isinstance(image_url, str):
-                                                    # Bir sınıf oluştur ki image_url_match.group(1) çalışsın
-                                                    class MatchObject:
-                                                        def group(self, n):
-                                                            return image_url
-                                                    image_url_match = MatchObject()
-                                        except:
-                                            pass
-                                
-                                # Eğer meta etiketlerinden bulunamadıysa, medya etiketlerini dene
-                                if not image_url_match:
-                                    # HTML'deki resim öğelerini doğrudan ara
-                                    img_match = re.search(r'<img[^>]+class="[^"]*(?:FFVAD|EmbeddedMediaImage)[^"]*"[^>]+src="([^"]+)"', response.text)
-                                    if img_match:
-                                        image_url_match = img_match
-                                
-                                video_url_match = re.search(r'<meta property="og:video" content="([^"]+)"', response.text)
-                                is_video = bool(video_url_match)
-                                
-                                if image_url_match or video_url_match:
-                                    # Kullanıcı klasörünü ve post klasörünü oluştur
-                                    user_dir = self.content_types["posts"] / username
-                                    user_dir.mkdir(exist_ok=True)
-                                    post_dir = user_dir / post_code
-                                    post_dir.mkdir(exist_ok=True)
-                                    
-                                    # Geçici sonuç oluştur
-                                    result = {
-                                        username: {
-                                            'Media Data': [{'is_video': is_video}]
-                                        }
-                                    }
-                                    
-                                    if is_video and video_url_match:
-                                        # Video indir
-                                        video_url = video_url_match.group(1)
-                                        
-                                        # 403 hatalarını ele almak için yeniden deneme mekanizması
-                                        max_retries = 3
-                                        retry_delay = 2  # saniye
-                                        success = False
-                                        
-                                        for attempt in range(max_retries):
-                                            # İlk denemede normal, sonraki denemelerde gelişmiş headerları kullan
-                                            current_headers = headers if attempt == 0 else enhanced_headers
-                                            
-                                            # Referrer ve Origin headerlarını ayarla
-                                            current_headers['Referer'] = f"https://www.instagram.com/p/{post_code}/"
-                                            if attempt > 0:
-                                                current_headers['Origin'] = "https://www.instagram.com"
-                                                
-                                                # URL'ye random parametre ekle (anti-caching)
-                                                if '?' not in video_url:
-                                                    video_url += f"?_={int(time.time())}"
-                                                else:
-                                                    video_url += f"&_={int(time.time())}"
-                                            
-                                            # Gerçek tarayıcı davranışını simüle etmek için düşük gecikme
-                                            if attempt > 0:
-                                                time.sleep(retry_delay)
-                                                print(f"🔄 Video indirme yeniden deneniyor (deneme {attempt+1}/{max_retries})...")
-                                            
-                                            try:
-                                                # İstek yap
-                                                video_response = requests.get(video_url, stream=True, headers=current_headers, cookies=self.cookies)
-                                                
-                                                # Başarılı ise kaydet ve çık
-                                                if video_response.status_code == 200:
-                                                    # Content-Type kontrolü
-                                                    content_type = video_response.headers.get('Content-Type', '')
-                                                    if not content_type.startswith(('video/', 'application/')):  # MP4 bazen application/octet-stream olabilir
-                                                        print(f"⚠️ İndirilen içerik bir video değil: {content_type}. Yeniden deneniyor...")
-                                                        continue
-                                                    
-                                                    # Dosyayı kaydet
-                                                    video_path = post_dir / f"{post_code}.mp4"
-                                                    with open(video_path, 'wb') as f:
-                                                        for chunk in video_response.iter_content(chunk_size=8192):
-                                                            if chunk:
-                                                                f.write(chunk)
-                                                    
-                                                    # Boyut kontrolü (boş dosya veya çok küçük dosya mı?)
-                                                    file_size = os.path.getsize(video_path)
-                                                    if file_size < 10000:  # 10KB'dan küçük
-                                                        print(f"⚠️ Video dosyası çok küçük ({file_size} byte). Yeniden deneniyor...")
-                                                        continue
-                                                    
-                                                    print(f"✅ Video meta etiketlerinden indirildi: {video_path}")
-                                                    success = True
-                                                    break
-                                                else:
-                                                    print(f"⚠️ Video indirme başarısız. HTTP kodu: {video_response.status_code}. Yeniden deneniyor...")
-                                            except Exception as e:
-                                                print(f"⚠️ Video indirme hatası: {str(e)}. Yeniden deneniyor...")
-                                                
-                                        if not success:
-                                            print("❌ Video indirilemedi. Tüm denemeler başarısız oldu.")
-                                            # Alternatif yöntem: web.archive.org'den dene
-                                            try:
-                                                print("🔄 Archive.org üzerinden video indirme deneniyor...")
-                                                archive_url = f"https://web.archive.org/web/0im_/{video_url}"
-                                                archive_response = requests.get(archive_url, headers=enhanced_headers, stream=True)
-                                                
-                                                if archive_response.status_code == 200:
-                                                    video_path = post_dir / f"{post_code}.mp4"
-                                                    with open(video_path, 'wb') as f:
-                                                        for chunk in archive_response.iter_content(chunk_size=8192):
-                                                            if chunk:
-                                                                f.write(chunk)
-                                                    
-                                                    # Boyut kontrolü
-                                                    file_size = os.path.getsize(video_path)
-                                                    if file_size > 10000:
-                                                        print(f"✅ Video archive.org üzerinden indirildi: {video_path}")
-                                                        success = True
-                                                    else:
-                                                        print("❌ Archive.org üzerinden indirilen video çok küçük.")
-                                                else:
-                                                    print("❌ Archive.org üzerinden indirme başarısız.")
-                                            except Exception as e:
-                                                print(f"❌ Archive.org üzerinden indirme hatası: {str(e)}")
-                                            
-                                            if not success:
-                                                return False
-                                    
-                                    elif image_url_match:
-                                        # Resim indir
-                                        image_url = image_url_match.group(1)
-                                        
-                                        # 403 hatalarını ele almak için yeniden deneme mekanizması
-                                        max_retries = 3
-                                        retry_delay = 2  # saniye
-                                        success = False
-                                        
-                                        for attempt in range(max_retries):
-                                            # İlk denemede normal, sonraki denemelerde gelişmiş headerları kullan
-                                            current_headers = headers if attempt == 0 else enhanced_headers
-                                            
-                                            # Referrer ve Origin headerlarını ayarla
-                                            current_headers['Referer'] = f"https://www.instagram.com/p/{post_code}/"
-                                            if attempt > 0:
-                                                current_headers['Origin'] = "https://www.instagram.com"
-                                                
-                                                # URL'ye random parametre ekle (anti-caching)
-                                                if '?' not in image_url:
-                                                    image_url += f"?_={int(time.time())}"
-                                                else:
-                                                    image_url += f"&_={int(time.time())}"
-                                            
-                                            # Gerçek tarayıcı davranışını simüle etmek için düşük gecikme
-                                            if attempt > 0:
-                                                time.sleep(retry_delay)
-                                                print(f"🔄 Resim indirme yeniden deneniyor (deneme {attempt+1}/{max_retries})...")
-                                            
-                                            try:
-                                                # İstek yap
-                                                image_response = requests.get(image_url, headers=current_headers, cookies=self.cookies)
-                                                
-                                                # Başarılı ise kaydet ve çık
-                                                if image_response.status_code == 200:
-                                                    # İçerik boyutu kontrolü
-                                                    content_length = len(image_response.content)
-                                                    if content_length < 5000:  # 5KB'dan küçükse şüpheli
-                                                        print(f"⚠️ Resim içeriği çok küçük ({content_length} byte). Yeniden deneniyor...")
-                                                        continue
-                                                    
-                                                    # Content-Type kontrolü
-                                                    content_type = image_response.headers.get('Content-Type', '')
-                                                    if not content_type.startswith(('image/', 'application/')):  # Bazı JPEG'ler application/ olabilir
-                                                        print(f"⚠️ İndirilen içerik bir resim değil: {content_type}. Yeniden deneniyor...")
-                                                        continue
-                                                    
-                                                    # Dosyayı kaydet
-                                                    image_path = post_dir / f"{post_code}.jpg"
-                                                    with open(image_path, 'wb') as f:
-                                                        f.write(image_response.content)
-                                                    
-                                                    print(f"✅ Resim meta etiketlerinden indirildi: {image_path}")
-                                                    success = True
-                                                    break
-                                                else:
-                                                    print(f"⚠️ Resim indirme başarısız. HTTP kodu: {image_response.status_code}. Yeniden deneniyor...")
-                                            except Exception as e:
-                                                print(f"⚠️ Resim indirme hatası: {str(e)}. Yeniden deneniyor...")
-                                                
-                                        if not success:
-                                            print("❌ Resim indirilemedi. Tüm denemeler başarısız oldu.")
-                                            # Alternatif yöntem: web.archive.org'den dene
-                                            try:
-                                                print("🔄 Archive.org üzerinden medya indirme deneniyor...")
-                                                archive_url = f"https://web.archive.org/web/0im_/{image_url}"
-                                                archive_response = requests.get(archive_url, headers=enhanced_headers)
-                                                
-                                                if archive_response.status_code == 200 and len(archive_response.content) > 5000:
-                                                    image_path = post_dir / f"{post_code}.jpg"
-                                                    with open(image_path, 'wb') as f:
-                                                        f.write(archive_response.content)
-                                                    print(f"✅ Resim archive.org üzerinden indirildi: {image_path}")
-                                                    success = True
-                                                else:
-                                                    print("❌ Archive.org üzerinden indirme başarısız.")
-                                                    
-                                                    # Son çare: Sayfadan HTML resimleri çıkarmayı dene
-                                                    print("🔄 HTML sayfasından alternatif resim bulunuyor...")
-                                                    
-                                                    # Tüm img etiketlerini al
-                                                    img_tags = re.findall(r'<img[^>]*src="([^"]+)"[^>]*>', response.text)
-                                                    potential_images = []
-                                                    
-                                                    # Profil resimleri ve küçük resimleri filtrele
-                                                    for img_url in img_tags:
-                                                        if "profile_pic" not in img_url and "s150x150" not in img_url:
-                                                            if img_url.startswith("http"):
-                                                                potential_images.append(img_url)
-                                                            elif img_url.startswith("/"):
-                                                                potential_images.append(f"https://www.instagram.com{img_url}")
-                                                            elif img_url.startswith("data:image/"):
-                                                                # Base64 resim bulundu
-                                                                if ";base64," in img_url:
-                                                                    try:
-                                                                        base64_data = img_url.split(";base64,")[1]
-                                                                        image_data = base64.b64decode(base64_data)
-                                                                        
-                                                                        if len(image_data) > 5000:
-                                                                            image_path = post_dir / f"{post_code}.jpg"
-                                                                            with open(image_path, 'wb') as f:
-                                                                                f.write(image_data)
-                                                                            print(f"✅ Resim base64 veriden çıkarıldı: {image_path}")
-                                                                            success = True
-                                                                            break
-                                                                    except:
-                                                                        pass
-                                                    
-                                                    # Potansiyel resimleri dene
-                                                    if potential_images and not success:
-                                                        for alt_img_url in potential_images:
-                                                            try:
-                                                                alt_img_response = requests.get(alt_img_url, headers=mobile_headers)
-                                                                
-                                                                if alt_img_response.status_code == 200 and len(alt_img_response.content) > 5000:
-                                                                    content_type = alt_img_response.headers.get('Content-Type', '')
-                                                                    if content_type.startswith(('image/', 'application/')):
-                                                                        image_path = post_dir / f"{post_code}.jpg"
-                                                                        with open(image_path, 'wb') as f:
-                                                                            f.write(alt_img_response.content)
-                                                                        print(f"✅ Resim HTML'den alındı: {image_path}")
-                                                                        success = True
-                                                                        break
-                                                            except:
-                                                                continue
-                                            except Exception as e:
-                                                print(f"❌ Alternatif yöntemlerle indirme hatası: {str(e)}")
-                                            
-                                            if not success:
-                                                # En son çare: Temsili görsel
-                                                try:
-                                                    print("⚠️ Görüntü indirme başarısız, temsili yertutucu oluşturuluyor...")
-                                                    # JPEG magic bytes ve temel header'lar için minimum geçerli bir JPEG
-                                                    placeholder_data = b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x03\x02\x02\x02\x02\x02\x03\x02\x02\x02\x03\x03\x03\x03\x04\x06\x04\x04\x04\x04\x04\x08\x06\x06\x05\x06\t\x08\n\n\t\x08\t\t\n\x0c\x0f\x0c\n\x0b\x0e\x0b\t\t\r\x11\r\x0e\x0f\x10\x10\x11\x10\n\x0c\x12\x13\x12\x10\x13\x0f\x10\x10\x10\xff\xc9\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xcc\x00\x06\x00\x10\x10\x05\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xd2\xcf \xff\xd9'
-                                                    
-                                                    image_path = post_dir / f"{post_code}.jpg"
-                                                    with open(image_path, 'wb') as f:
-                                                        f.write(placeholder_data)
-                                                    
-                                                    print(f"⚠️ Temsili görsel oluşturuldu: {image_path}")
-                                                    # Göstermelik bir resim oluşturduğumuz için işlemi başarılı sayalım
-                                                    success = True
-                                                except Exception as e:
-                                                    print(f"❌ Temsili görsel oluşturma hatası: {str(e)}")
-                                                    return False
-                        except Exception as e:
-                            print(f"⚠️ Meta etiket ayrıştırma hatası: {str(e)}")
-                    
-                    if not post_data and not result and not username:
-                        print("❌ Post verisi hiçbir şekilde bulunamadı.")
-                        print(self._("post_not_found"))
-                        return False
-                    
-                    # Eğer post_data bulunduysa, indirme işlemini gerçekleştir
-                    if post_data and username and not result:
-                        # Kullanıcı klasörünü ve post klasörünü oluştur
-                        user_dir = self.content_types["posts"] / username
-                        user_dir.mkdir(exist_ok=True)
-                        post_dir = user_dir / post_code
-                        post_dir.mkdir(exist_ok=True)
-                        
-                        # Geçici sonuç oluştur
-                        result = {
-                            username: {
-                                'Media Data': [{'is_video': post_data.get('is_video', False)}]
-                            }
-                        }
-                        
-                        # Medya dosyasını indir
-                        if post_data.get('is_video', False):
-                            # Video
-                            video_url = post_data.get('video_url')
-                            if not video_url:
-                                # Alternatif video URL yollarını dene
-                                video_versions = post_data.get('video_versions', [])
-                                if video_versions and len(video_versions) > 0:
-                                    video_url = video_versions[0].get('url')
-                            
-                            if video_url:
-                                video_response = requests.get(video_url, stream=True)
-                                video_path = post_dir / f"{post_code}.mp4"
-                                with open(video_path, 'wb') as f:
-                                    for chunk in video_response.iter_content(chunk_size=8192):
-                                        if chunk:
-                                            f.write(chunk)
-                                print(f"✅ Video dosyası indirildi: {video_path}")
-                        else:
-                            # Resim
-                            # Farklı resim URL yollarını dene
-                            image_url = None
-                            
-                            # 1. display_resources
-                            display_resources = post_data.get('display_resources', [])
-                            if display_resources:
-                                # En yüksek çözünürlüklü resmi al
-                                display_resources.sort(key=lambda x: x.get('config_width', 0), reverse=True)
-                                image_url = display_resources[0].get('src')
-                            
-                            # 2. display_url
-                            if not image_url:
-                                image_url = post_data.get('display_url')
-                            
-                            # 3. image_versions2
-                            if not image_url and 'image_versions2' in post_data:
-                                candidates = post_data.get('image_versions2', {}).get('candidates', [])
-                                if candidates and len(candidates) > 0:
-                                    # En yüksek çözünürlüklü resmi al
-                                    candidates.sort(key=lambda x: x.get('width', 0), reverse=True)
-                                    image_url = candidates[0].get('url')
-                            
-                            if image_url:
-                                image_response = requests.get(image_url)
-                                image_path = post_dir / f"{post_code}.jpg"
-                                with open(image_path, 'wb') as f:
-                                    f.write(image_response.content)
-                                print(f"✅ Resim dosyası indirildi: {image_path}")
-                        
-                        # Carousel post ise alt öğeleri indir
-                        carousel_media = None
-                        
-                        # 1. __typename kontrolü
-                        if post_data.get('__typename') == 'GraphSidecar':
-                            carousel_media = post_data.get('edge_sidecar_to_children', {}).get('edges', [])
-                        
-                        # 2. carousel_media doğrudan kontrolü
-                        elif not carousel_media and 'carousel_media' in post_data:
-                            carousel_media = post_data.get('carousel_media', [])
-                            carousel_media = [{'node': item} for item in carousel_media]
-                        
-                        # Carousel medyalarını indir
-                        if carousel_media:
-                            for i, edge in enumerate(carousel_media, 1):
-                                node = edge.get('node', {})
-                                is_video = node.get('is_video', False)
-                                
-                                if is_video:
-                                    # Video URL'sini bul (farklı formatları dene)
-                                    video_url = node.get('video_url')
-                                    
-                                    if not video_url:
-                                        video_versions = node.get('video_versions', [])
-                                        if video_versions and len(video_versions) > 0:
-                                            video_url = video_versions[0].get('url')
-                                    
-                                    if video_url:
-                                        video_response = requests.get(video_url, stream=True)
-                                        video_path = post_dir / f"{post_code}_{i}.mp4"
-                                        with open(video_path, 'wb') as f:
-                                            for chunk in video_response.iter_content(chunk_size=8192):
-                                                if chunk:
-                                                    f.write(chunk)
-                                        print(f"✅ Carousel video {i} indirildi: {video_path}")
-                                else:
-                                    # Resim URL'sini bul (farklı formatları dene)
-                                    image_url = None
-                                    
-                                    # 1. display_resources
-                                    display_resources = node.get('display_resources', [])
-                                    if display_resources:
-                                        display_resources.sort(key=lambda x: x.get('config_width', 0), reverse=True)
-                                        image_url = display_resources[0].get('src')
-                                    
-                                    # 2. display_url
-                                    if not image_url:
-                                        image_url = node.get('display_url')
-                                    
-                                    # 3. image_versions2
-                                    if not image_url and 'image_versions2' in node:
-                                        candidates = node.get('image_versions2', {}).get('candidates', [])
-                                        if candidates and len(candidates) > 0:
-                                            candidates.sort(key=lambda x: x.get('width', 0), reverse=True)
-                                            image_url = candidates[0].get('url')
-                                    
-                                    if image_url:
-                                        image_response = requests.get(image_url)
-                                        image_path = post_dir / f"{post_code}_{i}.jpg"
-                                        with open(image_path, 'wb') as f:
-                                            f.write(image_response.content)
-                                        print(f"✅ Carousel resim {i} indirildi: {image_path}")
-                    
-                except Exception as e:
-                    print(f"❌ Alternatif indirme yöntemi hatası: {str(e)}")
-                    print(self._("post_not_found"))
-                    return False
-            
-            if result:
-                username = list(result.keys())[0]
-                media_data = result[username].get('Media Data', [])
-                duration = time.time() - start_time
-                
-                if media_data:
-                    # Kullanıcı klasörünü oluştur
-                    user_dir = self.content_types["posts"] / username
-                    user_dir.mkdir(exist_ok=True)
-                    
-                    # Gönderi klasörünü oluştur
-                    post_dir = user_dir / post_code
-                    
-                    # Gönderi daha önce indirilmiş mi kontrol et
-                    already_downloaded = post_dir.exists()
-                    
-                    if already_downloaded:
-                        print(f"⚠️ Bu gönderi ({post_code}) daha önce indirilmiş. Tekrar indirilmiyor.")
-                        print(self._("post_saved", post_dir))
-                        return True
-                    
-                    # Gönderi klasörünü oluştur
-                    post_dir.mkdir(exist_ok=True)
-                    
-                    # Geçici klasörden hedef klasöre dosyaları taşı
-                    temp_post_dir = temp_dir / "post" / username
-                    if temp_post_dir.exists():
-                        # JSON dosyalarını kopyala
-                        for json_file in temp_post_dir.glob("*.json"):
-                            shutil.copy(json_file, post_dir)
-                        
-                        # Medya dosyalarını kopyala
-                        for media_file in temp_post_dir.glob("*.*"):
-                            if media_file.suffix.lower() in [".mp4", ".png", ".jpg", ".jpeg"]:
-                                shutil.copy(media_file, post_dir)
-                    
-                    # Sonuçları göster
-                    print(self._("post_success", username, duration))
-                    
-                    # İndirilen medyanın detaylarını göster
-                    for i, media in enumerate(media_data, 1):
-                        media_type = self._("media_video") if media.get('is_video') else self._("media_image")
-                        media_time = media.get('taken_at_formatted', self._("unknown_time"))
-                        print(self._("story_item", i, media_type, media_time))
-                    
-                    print(self._("post_saved", post_dir))
-                    return True
-            
-            # Eğer buraya gelindi ise, indirme başarısız olmuştur
-            print(self._("post_not_found"))
-            return False
-                
-        except Exception as e:
-            print(f"❌ Post indirme hatası: {str(e)}")
-            return False
-        finally:
-            # Her durumda geçici klasörü temizle
-            try:
-                if temp_dir.exists():
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-            except Exception:
-                pass
-    
     def download_profile_pic(self, username):
         """Belirtilen kullanıcının profil resmini doğrudan indir."""
         try:
@@ -1653,643 +871,658 @@ class InstaStalker:
             if not self.get_interactive_cookies():
                 return False
         
+
+    def download_post(self, post_url):
+        """Belirtilen gönderiyi indir."""
         try:
-            # Kullanıcı klasörünü oluştur
-            user_dir = self.content_types["stories"] / username / "highlights"
-            user_dir.mkdir(exist_ok=True, parents=True)
+            # Post kodunu URL'den çıkar
+            post_code = None
             
-            # Öne çıkan hikayeleri al
-            print(self._("downloading_highlights", username))
+            # URL formatını kontrol et
+            url_patterns = [
+                r'instagram.com/p/([^/]+)',
+                r'instagram.com/reel/([^/]+)',
+                r'instagram.com/tv/([^/]+)'
+            ]
             
-            # Instagram'dan kullanıcının profil sayfasını çek
+            for pattern in url_patterns:
+                match = re.search(pattern, post_url)
+                if match:
+                    post_code = match.group(1)
+                    break
+            
+            # Eğer kod bulunamazsa URL'yi doğrudan kod olarak kullan
+            if not post_code:
+                post_code = post_url.strip()
+            
+            # URL parametrelerini temizle
+            if '?' in post_code:
+                post_code = post_code.split('?')[0]
+                
+            # Geçerliliği kontrol et
+            if not post_code or len(post_code) < 5:
+                print(self._("invalid_post"))
+                return False
+            
+            # İndirme başlangıcını kaydet
+            start_time = time.time()
+            
+            # İndirme klasörünü oluştur
+            temp_dir = Path(tempfile.mkdtemp())
+            
+            # Instagram'ın 2024 API değişiklikleri için optimize edilmiş başlıklar
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            response = requests.get(f"https://www.instagram.com/{username}/", headers=headers, cookies=self.cookies)
-            
-            if response.status_code != 200:
-                print(self._("no_highlights_found", username))
-                return False
-            
-            # Kullanıcı ID'sini bulacak birden fazla regex dene
-            user_id = None
-            
-            # Pattern 1: Orijinal pattern '"user_id":"(\d+)"'
-            user_id_match = re.search(r'"user_id":"(\d+)"', response.text)
-            if user_id_match:
-                user_id = user_id_match.group(1)
-            
-            # Pattern 2: JSON formatında olabilir: "id":"12345678"
-            if not user_id:
-                # Süslü parantezleri formatlamada kullanırken escape etmek için ikiye katlıyoruz
-                pattern = r'"id":"(\d+)"[^}]*?"username":"' + re.escape(username) + r'"'
-                user_id_match = re.search(pattern, response.text)
-                if user_id_match:
-                    user_id = user_id_match.group(1)
-            
-            # Pattern 3: Farklı bir pattern 'profilePage_(\d+)'
-            if not user_id:
-                user_id_match = re.search(r'profilePage_(\d+)', response.text)
-                if user_id_match:
-                    user_id = user_id_match.group(1)
-            
-            # Pattern 4: Daha spesifik bir XPath tarzı sorgu
-            if not user_id:
-                user_id_match = re.search(r'"X-IG-App-ID":"[^"]+","user_id":"(\d+)"', response.text)
-                if user_id_match:
-                    user_id = user_id_match.group(1)
-                    
-            # Pattern 5: Instagram script tag'inden userId çıkarma
-            if not user_id:
-                user_id_match = re.search(r'<script[^>]*>\s*window\._sharedData\s*=\s*({.*?});</script>', response.text, re.DOTALL)
-                if user_id_match:
-                    try:
-                        shared_data = json.loads(user_id_match.group(1))
-                        user_id = shared_data.get('entry_data', {}).get('ProfilePage', [{}])[0].get('graphql', {}).get('user', {}).get('id')
-                    except:
-                        pass
-                        
-            # Hiçbir şekilde ID bulunamazsa alternatif yöntem dene - profil resminden ID çıkar
-            if not user_id:
-                profile_pic_match = re.search(r'profile_pic_url":"([^"]+)"', response.text)
-                if profile_pic_match:
-                    pic_url = profile_pic_match.group(1).replace('\\u0026', '&')
-                    profile_id_match = re.search(r'/(\d+)_', pic_url)
-                    if profile_id_match:
-                        user_id = profile_id_match.group(1)
-            
-            if not user_id:
-                # Daha agresif bir yöntem - sayfadaki tüm sayısal ID'leri tarayalım
-                all_ids = re.findall(r'"id":"(\d+)"', response.text)
-                common_ids = {}
-                
-                for id in all_ids:
-                    if id in common_ids:
-                        common_ids[id] += 1
-                    else:
-                        common_ids[id] = 1
-                
-                # En çok tekrar eden ID'yi kullan (muhtemelen kullanıcı ID'si)
-                if common_ids and len(common_ids) > 0:
-                    user_id = max(common_ids.items(), key=lambda x: x[1])[0]
-            
-            if not user_id:
-                print(self._("no_highlights_found", username))
-                print("🔍 Instagram'ın yaptığı güncellemeler nedeniyle kullanıcı ID'si çıkarılamıyor.")
-                print("💡 Kullanıcı ID'sini manuel olarak girebilirsiniz.")
-                print("\nID'yi bulmak için:")
-                print("1. Tarayıcıda Instagram'a gidin")
-                print("2. Web Geliştirici Araçlarını açın (F12)")
-                print("3. Network sekmesine tıklayın")
-                print("4. Sayfayı yenileyin")
-                print("5. 'graphql' içeren bir isteği bulun")
-                print("6. Sorgu parametrelerinde 'user_id' değerini arayın")
-                
-                # Kullanıcıdan ID iste
-                manual_id = input("\nKullanıcı ID'sini girin (0: İptal): ")
-                
-                if manual_id and manual_id.strip() and manual_id.isdigit() and manual_id != "0":
-                    user_id = manual_id.strip()
-                    print(f"✅ Manuel olarak girilen ID kullanılıyor: {user_id}")
-                else:
-                    print("❌ Geçerli bir kullanıcı ID'si girilmedi veya işlem iptal edildi.")
-                    return False
-                    
-            # Highlights API'sine istek gönder
-            # Güncel query_hash değeri kullanılıyor
-            highlights_url = f"https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_chaining%22%3Afalse%2C%22include_reel%22%3Afalse%2C%22include_suggested_users%22%3Afalse%2C%22include_logged_out_extras%22%3Afalse%2C%22include_highlight_reels%22%3Atrue%2C%22include_live_status%22%3Atrue%7D"
-            
-            highlights_response = requests.get(highlights_url, headers=headers, cookies=self.cookies)
-            
-            if highlights_response.status_code != 200:
-                print(self._("no_highlights_found", username))
-                return False
-            
-            # Highlights verilerini ayrıştır
-            try:
-                highlight_data = highlights_response.json()
-                if not highlight_data:
-                    print(f"❌ API yanıtında veri bulunamadı.")
-                    return False
-                
-                print("ℹ️ Highlight API yanıtı inceleniyor...")
-                
-                # Yanıt yapısını kontrol et ve farklı formatları dene
-                highlight_items = []
-                
-                # Otomatik olarak yanıt yapısını tespit etmeye çalış
-                if 'data' in highlight_data:
-                    data = highlight_data['data']
-                    
-                    # Olası yolları ara
-                    if 'user' in data and data['user']:
-                        user_data = data['user']
-                        if 'edge_highlight_reels' in user_data:
-                            edge_highlight_reels = user_data['edge_highlight_reels']
-                            if 'edges' in edge_highlight_reels:
-                                highlight_items = edge_highlight_reels['edges']
-                                print("✅ Highlight verisi bulundu: data.user.edge_highlight_reels.edges yapısında")
-                                
-                # Hiçbir highlight bulunamadıysa JSON yapısını incele
-                if not highlight_items:
-                    print("ℹ️ Alternatif yapılar aranıyor...")
-                    
-                    # JSON yapısını yazdır (debug için)
-                    debug_str = f"API yanıt yapısı (ilk 500 karakter):\n"
-                    debug_str += json.dumps(highlight_data)[:500] + "...\n"
-                    print(debug_str)
-                    
-                    # Kullanıcıya manuel giriş opsiyonu sun
-                    print("\nHighlight verisini içeren JSON yolunu belirtin veya çıkmak için 0 yazın.")
-                    print("Örneğin: data.user.edge_highlight_reels.edges")
-                    
-                    manual_path = input("> ")
-                    
-                    if manual_path == "0":
-                        print(self._("highlight_cancel"))
-                        return False
-                    
-                    try:
-                        # Manuel yolu takip et
-                        parts = manual_path.split('.')
-                        current = highlight_data
-                        
-                        for part in parts:
-                            if part.isdigit():
-                                current = current[int(part)]
-                            else:
-                                current = current.get(part, {})
-                        
-                        if isinstance(current, list):
-                            highlight_items = current
-                            print(f"✅ Highlight verisi manuel yoldan bulundu: {manual_path}")
-                        else:
-                            print("❌ Belirtilen yolda liste tipi veri bulunamadı.")
-                            return False
-                    except Exception as e:
-                        print(f"❌ Manuel yol işlenirken hata: {str(e)}")
-                        return False
-                
-                if not highlight_items:
-                    print(self._("no_highlights_found", username))
-                    return False
-                
-                # Öne çıkan hikayeleri listele
-                print(self._("highlight_selection"))
-                
-                highlight_info = []
-                for i, highlight in enumerate(highlight_items, 1):
-                    node = highlight.get('node', {})
-                    title = node.get('title', f"Highlight-{i}")
-                    highlight_id = node.get('id')
-                    media_count = node.get('highlight_reel_count', 0)
-                    
-                    highlight_info.append({
-                        'title': title,
-                        'id': highlight_id,
-                        'count': media_count
-                    })
-                    
-                    print(self._("highlight_item", i, title, media_count))
-                
-                print(self._("highlight_all"))
-                
-                # Kullanıcıdan hangi highlight'ı indirmek istediğini sor
-                choice = input(self._("highlight_choice")).strip()
-                
-                if choice == "0":
-                    print(self._("highlight_cancel"))
-                    return False
-                
-                # Tüm öne çıkan hikayeleri indir
-                if choice.lower() == "a":
-                    all_success = True
-                    for highlight in highlight_info:
-                        success = self._download_single_highlight(username, highlight, user_dir)
-                        all_success = all_success and success
-                    return all_success
-                
-                # Seçilen öne çıkan hikayeyi indir
-                try:
-                    choice_idx = int(choice) - 1
-                    if 0 <= choice_idx < len(highlight_info):
-                        selected_highlight = highlight_info[choice_idx]
-                        return self._download_single_highlight(username, selected_highlight, user_dir)
-                    else:
-                        print(self._("invalid_choice"))
-                        return False
-                except ValueError:
-                    print(self._("invalid_choice"))
-                    return False
-            except Exception as e:
-                print(self._("highlight_error", str(e)))
-                return False
-        
-        except Exception as e:
-            print(self._("highlight_error", str(e)))
-            return False
-
-    def _download_single_highlight(self, username, highlight, base_dir):
-        """Tek bir öne çıkan hikayeyi indir."""
-        title = highlight['title']
-        highlight_id = highlight['id']
-        
-        try:
-            # Highlight klasörünü oluştur
-            highlight_dir = base_dir / title.replace("/", "_").replace("\\", "_")
-            highlight_dir.mkdir(exist_ok=True)
-            
-            print(self._("downloading_highlight", title))
-            
-            # Highlight içeriğini al
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            
-            # Güncel API query_hash ve parametrelerini kullan
-            highlight_url = f"https://www.instagram.com/graphql/query/?query_hash=45246d3fe16ccc6577e0bd297a5db1ab&variables=%7B%22reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22tag_names%22%3A%5B%5D%2C%22location_ids%22%3A%5B%5D%2C%22highlight_reel_ids%22%3A%5B%22{highlight_id}%22%5D%2C%22precomposed_overlay%22%3Afalse%7D"
-            
-            highlight_response = requests.get(highlight_url, headers=headers, cookies=self.cookies)
-            
-            if highlight_response.status_code != 200:
-                print(self._("no_highlights_found", username))
-                return False
-            
-            # Highlight verisini ayrıştır
-            try:
-                highlight_data = highlight_response.json()
-                if not highlight_data:
-                    print(f"❌ API yanıtında veri bulunamadı.")
-                    return False
-                
-                print("ℹ️ Highlight medya verisi inceleniyor...")
-                
-                # Medya içeriğine erişim için farklı JSON yapılarını dene
-                media_items = []
-                
-                # En yaygın format: data.reels_media[0].items
-                if 'data' in highlight_data and 'reels_media' in highlight_data['data']:
-                    reels_media = highlight_data['data']['reels_media']
-                    if reels_media and len(reels_media) > 0 and 'items' in reels_media[0]:
-                        media_items = reels_media[0]['items']
-                        print(f"✅ Highlight medya içeriği bulundu: {len(media_items)} öğe")
-                
-                # Alternatif path: data.reels.{highlight_id}.items
-                if not media_items and 'data' in highlight_data and 'reels' in highlight_data['data']:
-                    reels = highlight_data['data']['reels']
-                    if highlight_id in reels and 'items' in reels[highlight_id]:
-                        media_items = reels[highlight_id]['items']
-                        print(f"✅ Highlight medya içeriği alternatif yoldan bulundu: {len(media_items)} öğe")
-                
-                # Hiçbir medya bulunamadıysa JSON yapısını incele ve kullanıcıdan yardım iste
-                if not media_items:
-                    print("❌ Medya içeriği bulunamadı. API yanıt yapısı:")
-                    debug_str = json.dumps(highlight_data)[:500] + "..."
-                    print(debug_str)
-                    
-                    print("\nMediaları içeren JSON yolunu belirtin veya çıkmak için 0 yazın.")
-                    print("Örneğin: data.reels_media.0.items")
-                    
-                    manual_path = input("> ")
-                    
-                    if manual_path == "0":
-                        print(self._("highlight_cancel"))
-                        return False
-                    
-                    try:
-                        # Manuel yolu takip et
-                        parts = manual_path.split('.')
-                        current = highlight_data
-                        
-                        for part in parts:
-                            if part.isdigit():
-                                current = current[int(part)]
-                            else:
-                                current = current.get(part, {})
-                        
-                        if isinstance(current, list):
-                            media_items = current
-                            print(f"✅ Medya içeriği manuel yoldan bulundu: {len(media_items)} öğe")
-                        else:
-                            print("❌ Belirtilen yolda liste tipi medya verisi bulunamadı.")
-                            return False
-                    except Exception as e:
-                        print(f"❌ Manuel yol işlenirken hata: {str(e)}")
-                        return False
-                
-                if not media_items:
-                    print(f"❌ {title} için indirilebilir medya bulunamadı.")
-                    return False
-                
-                # Highlight medyalarını indir
-                downloaded_count = 0
-                
-                for item in media_items:
-                    # Medya ID'si ve zaman damgası
-                    media_id = item.get('id', 'unknown')
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    
-                    is_video = item.get('is_video', False)
-                    
-                    if is_video:
-                        # Video URL'sini bul
-                        video_url = None
-                        
-                        # Ana video URL'si
-                        if 'video_versions' in item and len(item['video_versions']) > 0:
-                            video_url = item['video_versions'][0].get('url')
-                        # Alternatif video kaynak yapısı
-                        elif 'video_resources' in item and len(item['video_resources']) > 0:
-                            video_url = item['video_resources'][0].get('src')
-                        
-                        if not video_url:
-                            print(f"⚠️ Video URL'si bulunamadı: {media_id}")
-                            continue
-                        
-                        # Dosya adı ve yolu
-                        video_filename = f"{username}_highlight_{title}_{media_id}_{timestamp}.mp4"
-                        video_path = highlight_dir / video_filename
-                        
-                        # Video indir
-                        print(f"⏳ Video indiriliyor: {media_id}")
-                        try:
-                            video_response = requests.get(video_url, stream=True)
-                            with open(video_path, 'wb') as f:
-                                for chunk in video_response.iter_content(chunk_size=8192):
-                                    if chunk:
-                                        f.write(chunk)
-                            downloaded_count += 1
-                            print(f"✅ Video indirildi: {video_filename}")
-                        except Exception as e:
-                            print(f"❌ Video indirme hatası ({media_id}): {str(e)}")
-                    else:
-                        # Resim URL'sini bul
-                        image_url = None
-                        
-                        # Ana resim URL'si
-                        if 'image_versions2' in item and 'candidates' in item['image_versions2']:
-                            candidates = item['image_versions2']['candidates']
-                            if candidates and len(candidates) > 0:
-                                image_url = candidates[0].get('url')
-                        # Alternatif resim kaynak yapısı
-                        elif 'display_resources' in item and len(item['display_resources']) > 0:
-                            # En yüksek çözünürlüklü resmi al
-                            sorted_resources = sorted(item['display_resources'], 
-                                                    key=lambda x: x.get('config_width', 0), 
-                                                    reverse=True)
-                            image_url = sorted_resources[0].get('src')
-                        
-                        if not image_url:
-                            print(f"⚠️ Resim URL'si bulunamadı: {media_id}")
-                            continue
-                        
-                        # Dosya adı ve yolu
-                        image_filename = f"{username}_highlight_{title}_{media_id}_{timestamp}.jpg"
-                        image_path = highlight_dir / image_filename
-                        
-                        # Resim indir
-                        print(f"⏳ Resim indiriliyor: {media_id}")
-                        try:
-                            image_response = requests.get(image_url)
-                            with open(image_path, 'wb') as f:
-                                f.write(image_response.content)
-                            downloaded_count += 1
-                            print(f"✅ Resim indirildi: {image_filename}")
-                        except Exception as e:
-                            print(f"❌ Resim indirme hatası ({media_id}): {str(e)}")
-                
-                print(self._("highlight_success", title, downloaded_count))
-                print(self._("highlight_saved", highlight_dir))
-                return downloaded_count > 0
-                
-            except Exception as e:
-                print(f"❌ Highlight verisi ayrıştırılamadı: {str(e)}")
-                return False
-        
-        except Exception as e:
-            print(self._("highlight_error", str(e)))
-            return False
-
-        """Get posts for a specific username with a limit.
-        This is a helper method for the GUI to fetch posts.
-        """
-        try:
-            # Create InstaFeed object for getting posts
-            feed_obj = InstaFeed()
-            feed_obj.cookies = self.cookies
-            
-            # InstaCapture kütüphanesi için ilgili diğer attributes
-            # cookies'i farklı bir formatta (dict olarak) bekliyorsa bunu da sağlayalım
-            if hasattr(feed_obj, 'cookies_dict'):
-                feed_obj.cookies_dict = self.cookies
-            
-            feed_obj.username = username
-            feed_obj.limit = limit
-            
-            # Get feed data
-            results = feed_obj.feed_download()
-            
-            if results and username in results and results[username].get('Media Data'):
-                # Return the post data
-                return results[username].get('Media Data', [])
-            return []
-        except Exception as e:
-            print(f"Error in get_posts: {str(e)}")
-            return []
-
-
-# InstaFeed sınıfını tanımla - Kullanıcının son gönderilerini almak için
-class InstaFeed:
-    """Instagram kullanıcı beslemesi (feed) için basit bir sınıf."""
-    
-    def __init__(self):
-        self.cookies = {}
-        self.username = None
-        self.limit = 12  # Varsayılan olarak son 12 gönderi
-        self.folder_path = "./feed"
-        
-    def feed_download(self):
-        """Kullanıcının son gönderilerini indirir ve kısa kodlarını döndürür."""
-        if not self.cookies or not self.username:
-            return None
-            
-        try:
-            # Instagram kullanıcı profil URL'si
-            url = f"https://www.instagram.com/{self.username}/"
-            
-            # Instagram'a istek gönder
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Referer": "https://www.instagram.com/",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
                 "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1"
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Upgrade-Insecure-Requests": "1",
+                "Referer": "https://www.instagram.com/",
+                "sec-ch-ua": "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"",
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": "\"macOS\""
             }
             
-            # Çerezleri formatlama
-            cookies_dict = {k: v for k, v in self.cookies.items()}
-            
-            # Sayfayı getir
-            response = requests.get(url, headers=headers, cookies=cookies_dict)
-            
-            if response.status_code != 200:
-                return None
-                
-            # Sayfa içeriğini al
-            content = response.text
-            
-            # JSON veri yapısını çıkarmak için regex kullan
-            # shared_data değişkenini ara
-            matches = re.findall(r'window\._sharedData\s*=\s*({.*?});</script>', content)
-            
-            if not matches:
-                return None
-                
-            # JSON verilerini ayrıştır
-            json_data = json.loads(matches[0])
-            
-            # Kullanıcının gönderilerini al
-            user_data = json_data.get('entry_data', {}).get('ProfilePage', [{}])[0].get('graphql', {}).get('user', {})
-            
-            if not user_data:
-                # Alternatif yöntem: additional_data'dan al
-                matches2 = re.findall(r'window\.__additionalDataLoaded\s*\(\s*[\'"]feed[\'"],\s*({.*?})\);</script>', content)
-                if matches2:
-                    additional_data = json.loads(matches2[0])
-                    user_data = additional_data.get('graphql', {}).get('user', {})
-            
-            if not user_data:
-                return None
-                
-            # Timeline gönderilerini al
-            edge_owner_to_timeline_media = user_data.get('edge_owner_to_timeline_media', {})
-            edges = edge_owner_to_timeline_media.get('edges', [])
-            
-            # Gönderi kısa kodlarını topla
-            post_codes = []
-            for edge in edges[:self.limit]:  # Sadece belirtilen sayıda gönderi al
-                node = edge.get('node', {})
-                shortcode = node.get('shortcode')
-                if shortcode:
-                    post_codes.append(shortcode)
-            
-            # Sonuçları döndür
-            result = {
-                self.username: {
-                    'Media Data': post_codes
-                }
-            }
-            
-            return result
-            
-        except Exception as e:
-            print(f"Hata: {str(e)}")
-            return None
-
-
-def main():
-    try:
-        stalker = InstaStalker()
-        
-        while True:
-            print("\n" + "="*50)
-            print(stalker._("app_title"))
-            print("="*50)
-            
-            print("\n" + stalker._("app_name"))
-            print("1. " + stalker._("menu_download_story"))
-            print("2. " + stalker._("menu_download_post"))
-            print("3. " + stalker._("menu_download_profile"))
-            print("4. " + stalker._("menu_set_cookies"))
-            print("5. " + stalker._("menu_list_downloads"))
-            print("6. " + stalker._("menu_batch_download"))
-            print("7. " + stalker._("menu_clean"))
-            print("8. " + stalker._("menu_lang"))
-            print("9. " + stalker._("menu_9"))
-            print("10. " + stalker._("menu_10"))
-            print("0. " + stalker._("menu_exit"))
-            
-            choice = input(stalker._("menu_choice"))
-            
-            if choice == "1":
-                # Hikaye indirme
-                username = input(stalker._("username_prompt"))
-                stalker.download_story(username)
-            
-            elif choice == "2":
-                # Gönderi indirme
-                post_url = input(stalker._("post_url_prompt"))
-                stalker.download_post(post_url)
-            
-            elif choice == "3":
-                # Profil resmi indirme
-                username = input(stalker._("username_prompt"))
-                stalker.download_profile_pic(username)
-            
-            elif choice == "4":
-                # Çerezleri ayarla
-                stalker.get_interactive_cookies()
-            
-            elif choice == "5":
-                # İndirilen dosyaları listele
-                stalker.list_downloaded_files()
-            
-            elif choice == "6":
-                # Toplu indirme
-                batch_username = input(stalker._("batch_username_prompt"))
-                stalker.batch_download(batch_username)
-            
-            elif choice == "7":
-                # İndirilen dosyaları temizle
-                confirm = input(stalker._("clean_confirm"))
-                if confirm.lower() == stalker._("yes_short"):
-                    shutil.rmtree(stalker.base_dir, ignore_errors=True)
-                    stalker.base_dir.mkdir(exist_ok=True)
-                    for dir_path in stalker.content_types.values():
-                        dir_path.mkdir(exist_ok=True)
-                    print(stalker._("clean_success"))
+            # Çalışan bir çerez kontrolü yap
+            if not self.cookies or not self.cookies.get('sessionid'):
+                print("⚠️ Instagram oturum çerezi (sessionid) bulunamadı. Çerezleri ayarlamanız gerekebilir.")
+                if self.get_interactive_cookies():
+                    print("✅ Çerezler başarıyla ayarlandı. İndirme devam ediyor...")
                 else:
-                    print(stalker._("clean_cancel"))
+                    print("❌ Çerezler ayarlanamadı. İndirme başarısız olabilir.")
             
-            elif choice == "8":
-                # Dil değiştir
-                stalker.change_language()
-                
-            elif choice == "9":
-                # Şifreleme aç/kapat
-                stalker.toggle_encryption()
-                
-            elif choice == "10":
-                # Öne çıkan hikayeleri indir
-                username = input(stalker._("highlight_username_prompt"))
-                stalker.download_highlights(username)
+            # Instagram'ın Yeni API Formatları (2024) için çerez tabanlı doğrulama
+            combined_url = f"https://www.instagram.com/p/{post_code}/"
+            post_data = None
+            graphql_username = None
             
-            elif choice == "0":
-                # Çıkış
-                print(stalker._("exit_message"))
-                break
+            print(f"📥 Gönderi indiriliyor: {post_code}")
+            
+            try:
+                # Gönderi sayfasını çek
+                response = requests.get(combined_url, headers=headers, cookies=self.cookies, allow_redirects=True)
+                html_content = None
                 
-            else:
-                print(stalker._("invalid_choice"))
+                if response.status_code == 200:
+                    # Print response headers for debugging
+                    print(f"📋 Response Headers:")
+                    for key, value in response.headers.items():
+                        print(f"    {key}: {value}")
+                    
+                    # Save the raw binary response first
+                    with open("instapost_raw.bin", "wb") as f:
+                        f.write(response.content)
+                    print(f"💾 Raw binary response saved to 'instapost_raw.bin'")
+                    
+                    try:
+                        # Check if content is compressed
+                        content_encoding = response.headers.get('Content-Encoding', '').lower()
+                        if 'gzip' in content_encoding:
+                            html_content = gzip.decompress(response.content).decode('utf-8')
+                        elif 'br' in content_encoding:
+                            html_content = brotli.decompress(response.content).decode('utf-8')
+                        else:
+                            html_content = response.text
+                    except Exception as e:
+                        print(f"⚠️ Decompression error: {str(e)}")
+                        # Fallback - try direct download as separate request without compression
+                        try:
+                            print("🔄 Using fallback method - direct download without compression...")
+                            # Create new headers without accepting compression
+                            fallback_headers = headers.copy()
+                            fallback_headers["Accept-Encoding"] = "identity"
+                            fallback_response = requests.get(combined_url, headers=fallback_headers, cookies=self.cookies)
+                            html_content = fallback_response.text
+                            print(f"✅ Fallback method successful")
+                        except Exception as fallback_error:
+                            print(f"❌ Fallback method failed: {str(fallback_error)}")
+                            # Last resort - try to directly download the page using a tool like curl
+                            try:
+                                import subprocess
+                                print("🔄 Using system curl as last resort...")
+                                # Create a temporary cookie file
+                                cookie_file = "temp_cookies.txt"
+                                with open(cookie_file, "w") as f:
+                                    for cookie_name, cookie_value in self.cookies.items():
+                                        f.write(f"instagram.com\tTRUE\t/\tTRUE\t0\t{cookie_name}\t{cookie_value}\n")
+                                    
+                                    # Use curl with the cookie file
+                                    curl_cmd = [
+                                        "curl", "-L", 
+                                        "-A", headers["User-Agent"], 
+                                        "-b", cookie_file,
+                                        combined_url, 
+                                        "-o", "instapost.html"
+                                    ]
+                                    subprocess.run(curl_cmd, check=True)
+                                    
+                                    # Clean up temporary cookie file
+                                    try:
+                                        os.remove(cookie_file)
+                                    except:
+                                        pass
+                                        
+                                    with open("instapost.html", "r", encoding="utf-8") as f:
+                                        html_content = f.read()
+                                    print(f"✅ Direct download with curl successful")
+                            except Exception as curl_error:
+                                print(f"❌ System curl failed: {str(curl_error)}")
+                                return False
+                    
+                    print(f"✅ Bağlantı başarılı: {combined_url}")
+                    
+                    # Debug: Save HTML content to file for analysis
+                    with open("instapost.html", "w", encoding="utf-8") as f:
+                        f.write(html_content)
+                    print(f"💾 HTML içeriği 'instapost.html' dosyasına kaydedildi")
+                else:
+                    # Reel URL'sini dene
+                    reel_url = f"https://www.instagram.com/reel/{post_code}/"
+                    try:
+                        reel_response = requests.get(reel_url, headers=headers, cookies=self.cookies, allow_redirects=True)
+                        if reel_response.status_code == 200:
+                            # Print response headers for debugging
+                            print(f"📋 Reel Response Headers:")
+                            for key, value in reel_response.headers.items():
+                                print(f"    {key}: {value}")
+                            
+                            # Save the raw binary response first
+                            with open("instapost_reel_raw.bin", "wb") as f:
+                                f.write(reel_response.content)
+                            print(f"💾 Raw binary response saved to 'instapost_reel_raw.bin'")
+                            
+                            try:
+                                # Check if content is compressed
+                                content_encoding = reel_response.headers.get('Content-Encoding', '').lower()
+                                if 'gzip' in content_encoding:
+                                    html_content = gzip.decompress(reel_response.content).decode('utf-8')
+                                elif 'br' in content_encoding:
+                                    html_content = brotli.decompress(reel_response.content).decode('utf-8')
+                                else:
+                                    html_content = reel_response.text
+                            except Exception as e:
+                                print(f"⚠️ Decompression error: {str(e)}")
+                                # Fallback - try direct download as separate request without compression
+                                try:
+                                    print("🔄 Using fallback method - direct download without compression...")
+                                    # Create new headers without accepting compression
+                                    fallback_headers = headers.copy()
+                                    fallback_headers["Accept-Encoding"] = "identity"
+                                    fallback_response = requests.get(reel_url, headers=fallback_headers, cookies=self.cookies)
+                                    html_content = fallback_response.text
+                                    print(f"✅ Fallback method successful")
+                                except Exception as fallback_error:
+                                    print(f"❌ Fallback method failed: {str(fallback_error)}")
+                                    # Last resort - try to directly download the page using a tool like curl
+                                    try:
+                                        import subprocess
+                                        print("🔄 Using system curl as last resort...")
+                                        # Create a temporary cookie file
+                                        cookie_file = "temp_cookies.txt"
+                                        with open(cookie_file, "w") as f:
+                                            for cookie_name, cookie_value in self.cookies.items():
+                                                f.write(f"instagram.com\tTRUE\t/\tTRUE\t0\t{cookie_name}\t{cookie_value}\n")
+                                        
+                                        # Use curl with the cookie file
+                                        curl_cmd = [
+                                            "curl", "-L", 
+                                            "-A", headers["User-Agent"], 
+                                            "-b", cookie_file,
+                                            reel_url, 
+                                            "-o", "instapost.html"
+                                        ]
+                                        subprocess.run(curl_cmd, check=True)
+                                        
+                                        # Clean up temporary cookie file
+                                        try:
+                                            os.remove(cookie_file)
+                                        except:
+                                            pass
+                                            
+                                        with open("instapost.html", "r", encoding="utf-8") as f:
+                                            html_content = f.read()
+                                        print(f"✅ Direct download with curl successful")
+                                    except Exception as curl_error:
+                                        print(f"❌ System curl failed: {str(curl_error)}")
+                                        return False
+                                
+                            print(f"✅ Bağlantı başarılı: {reel_url}")
+                            
+                            # Debug: Save HTML content to file for analysis
+                            with open("instapost.html", "w", encoding="utf-8") as f:
+                                f.write(html_content)
+                            print(f"💾 HTML içeriği 'instapost.html' dosyasına kaydedildi")
+                        else:
+                            print(f"❌ Gönderi sayfasına erişilemedi: {response.status_code}, Reel: {reel_response.status_code}")
+                    except Exception as e:
+                        print(f"❌ Reel sayfasına erişim hatası: {str(e)}")
                 
-    except KeyboardInterrupt:
-        print(stalker._("interrupt_message"))
-        
-    except Exception as e:
-        print(stalker._("unexpected_error", str(e)))
+                if not html_content:
+                    print("❌ Gönderi sayfasına erişilemedi.")
+                    return False
+                
+                # Kullanıcı adını bulmak için geliştirilmiş regex kalıpları
+                username_patterns = [
+                    # Instagram 2024 için yeni kalıplar
+                    r'property="og:title"\s+content="([^"]*?) on Instagram"',
+                    r'property="og:title"\s+content="Instagram post by ([^"]*?)"',
+                    r'property="og:description"\s+content="([^"]*?) shared a post on Instagram"',
+                    r'property="og:description"\s+content="([^"]*?) on Instagram: "',
+                    # Schema.org yapıları
+                    r'"alternateName"\s*:\s*"@([^"]+)"',
+                    # React yapısı
+                    r'"username"\s*:\s*"([^"]+)"',
+                    # Profil linkleri
+                    r'href="https://www\.instagram\.com/([^/]+)/"[^>]*>',
+                    r'href="/([^/]+)/"[^>]*>@[^<]+</a>',
+                    # Basit metin arama
+                    r'"@([a-zA-Z0-9._]{3,30})"',
+                ]
+                
+                # Kullanıcı adını bul
+                for pattern in username_patterns:
+                    match = re.search(pattern, html_content)
+                    if match:
+                        username_candidate = match.group(1).strip()
+                        # Kullanıcı adı temizleme ve doğrulama
+                        if username_candidate and len(username_candidate) > 2 and not any(x in username_candidate for x in ['Instagram', 'http', 'login', 'sign up']):
+                            graphql_username = username_candidate
+                            print(f"✅ Kullanıcı adı bulundu: {graphql_username}")
+                            break
+                
+                # Eğer kullanıcı adını bulamazsak, özel bir post kodu oluştur
+                if not graphql_username:
+                    # React veri yapısını kullanarak dene
+                    print("🔍 React veri yapısını kontrol ediliyor...")
+                    shared_data_match = re.search(r'window\._sharedData\s*=\s*({.*?});</script>', html_content, re.DOTALL)
+                    if shared_data_match:
+                        try:
+                            shared_data = json.loads(shared_data_match.group(1))
+                            print(f"✅ SharedData JSON başarıyla ayrıştırıldı")
+                            if "entry_data" in shared_data:
+                                print(f"✅ entry_data bulundu")
+                                if "PostPage" in shared_data["entry_data"]:
+                                    print(f"✅ PostPage bulundu")
+                                    post_page = shared_data["entry_data"]["PostPage"][0]
+                                    if "graphql" in post_page and "shortcode_media" in post_page["graphql"]:
+                                        print(f"✅ graphql ve shortcode_media bulundu")
+                                        media = post_page["graphql"]["shortcode_media"]
+                                        if "owner" in media and "username" in media["owner"]:
+                                            graphql_username = media["owner"]["username"]
+                                            print(f"✅ SharedData'dan kullanıcı adı bulundu: {graphql_username}")
+                        except Exception as e:
+                            print(f"⚠️ SharedData işleme hatası: {str(e)}")
+                
+                # AdditionalData formatını dene
+                print("🔍 Additional data kontrol ediliyor...")
+                additional_data_match = re.search(r'window\.__additionalDataLoaded\s*\(\s*[\'"]feed[\'"]\s*,\s*({.*?})\);</script>', html_content, re.DOTALL)
+                if additional_data_match:
+                    try:
+                        additional_data = json.loads(additional_data_match.group(1))
+                        print(f"✅ AdditionalData JSON başarıyla ayrıştırıldı")
+                        # ... process additional data
+                    except Exception as e:
+                        print(f"⚠️ AdditionalData işleme hatası: {str(e)}")
 
+                # Alternatif olarak app-state de kontrol et
+                print("🔍 Server app state kontrol ediliyor...")
+                app_state_match = re.search(r'<script type="application/json" id="server-app-state">(.*?)</script>', html_content, re.DOTALL)
+                if app_state_match:
+                    try:
+                        app_state = json.loads(app_state_match.group(1))
+                        print(f"✅ App state JSON başarıyla ayrıştırıldı")
+                        # ... process app state
+                    except Exception as e:
+                        print(f"⚠️ App state işleme hatası: {str(e)}")
 
-if __name__ == "__main__":
-    try:
-        stalker = InstaStalker()
-        print(stalker._("app_title"))
-        main()
-    except KeyboardInterrupt:
-        # InstaStalker nesnesi oluştur
-        stalker = InstaStalker()
-        print(stalker._("interrupt_message"))
-    except Exception as e:
-        # InstaStalker nesnesi oluştur
-        stalker = InstaStalker()
-        print(stalker._("unexpected_error", str(e))) 
+                # React veri yapısını kontrol et (2024 Yeni Format)
+                print("🔍 React JSON veri yapılarını kontrol ediliyor...")
+                react_data_patterns = [
+                    r'<script type="application/json" data-sjs>[^<]*({"require":\[.*?\]})</script>',
+                    r'<script type="application/json" id="server-app-state">(.*?)</script>',
+                    r'<script type="application/json"[^>]*>({".*?})</script>'
+                ]
+                
+                react_images = []
+                react_videos = []
+                
+                for pattern in react_data_patterns:
+                    matches = re.findall(pattern, html_content, re.DOTALL)
+                    if matches:
+                        for match_data in matches:
+                            try:
+                                # JSON verisini ayıkla ve işle
+                                json_data = json.loads(match_data)
+                                print(f"✅ React JSON verisi başarıyla ayrıştırıldı")
+                                
+                                # JSON'da medya URL'lerini ara
+                                json_str = json.dumps(json_data)
+                                
+                                # Medya URL'lerini topla
+                                img_urls = re.findall(r'"(?:display_url|profile_pic_url|profile_pic_url_hd|thumbnail_src|optimized_image_url|static_image|uri)":\s*"(https:[^"]+\.(jpg|jpeg|png)[^"]*)"', json_str)
+                                vid_urls = re.findall(r'"(?:video_url|contentUrl|playback_url|uri)":\s*"(https:[^"]+\.(mp4|mov)[^"]*)"', json_str)
+                                
+                                # URL'leri listelere ekle
+                                for url_match in img_urls:
+                                    if isinstance(url_match, tuple):
+                                        react_images.append(url_match[0].replace('\\u0026', '&'))
+                                
+                                for url_match in vid_urls:
+                                    if isinstance(url_match, tuple):
+                                        react_videos.append(url_match[0].replace('\\u0026', '&'))
+                                
+                                # Kullanıcı adını bulmayı dene
+                                if not graphql_username:
+                                    username_match = re.search(r'"username":\s*"([^"]+)"', json_str)
+                                    if username_match:
+                                        potential_username = username_match.group(1)
+                                        if potential_username and len(potential_username) > 2:
+                                            graphql_username = potential_username
+                                            print(f"✅ React verisinden kullanıcı adı bulundu: {graphql_username}")
+                            except Exception as e:
+                                print(f"⚠️ React JSON işleme hatası: {str(e)}")
+
+                # Hala bulamadıysak, kullanıcı ID'si üzerinden deneyelim
+                if not graphql_username:
+                    print("🔍 User ID'yi kontrol ediliyor...")
+                    user_id_patterns = [
+                        r'"owner_id":\s*"(\d+)"',
+                        r'"user_id":\s*"(\d+)"',
+                        r'"profile_id":\s*"(\d+)"',
+                        r'"profilePage_(\d+)"',
+                    ]
+                    
+                    for pattern in user_id_patterns:
+                        matches = re.findall(pattern, html_content)
+                        if matches:
+                            print(f"✅ Eşleşen ID'ler bulundu: {matches[:5]}")
+                            # ID'ler listesindeki her ID'yi dene
+                            for user_id in matches:
+                                try:
+                                    api_url = f"https://www.instagram.com/graphql/query/?query_hash=c9100bf9110dd6361671f113dd02e7d6&variables=%7B%22user_id%22%3A%22{user_id}%22%2C%22include_reel%22%3Atrue%7D"
+                                    api_headers = headers.copy()
+                                    api_headers["X-Requested-With"] = "XMLHttpRequest"
+                                    api_response = requests.get(api_url, headers=api_headers, cookies=self.cookies)
+                                    
+                                    if api_response.status_code == 200:
+                                        api_data = api_response.json()
+                                        if "data" in api_data and "user" in api_data["data"] and api_data["data"]["user"]:
+                                            graphql_username = api_data["data"]["user"]["username"]
+                                            print(f"✅ ID {user_id} ile kullanıcı adı bulundu: {graphql_username}")
+                                            break
+                                except Exception as e:
+                                    print(f"⚠️ ID {user_id} ile kullanıcı adı sorgulama hatası: {str(e)}")
+                                    continue
+                            
+                            if graphql_username:
+                                break
+
+                # Son çare - meta etiketlerinden post verisi ekstra
+                if not post_data:
+                    print("🔍 Meta etiketlerini kontrol ediliyor...")
+                    # Meta etiketlerindeki resim ve video URL'lerini bul
+                    image_url = None
+                    video_url = None
+                    
+                    # og:image
+                    image_match = re.search(r'property="og:image"\s+content="([^"]+)"', html_content)
+                    if image_match:
+                        image_url = image_match.group(1)
+                        print(f"✅ og:image bulundu: {image_url}")
+                    
+                    # og:video
+                    video_match = re.search(r'property="og:video"\s+content="([^"]+)"', html_content)
+                    if video_match:
+                        video_url = video_match.group(1)
+                        print(f"✅ og:video bulundu: {video_url}")
+                    
+                    if image_url or video_url:
+                        post_data = {
+                            "direct_images": [image_url] if image_url else [],
+                            "direct_videos": [video_url] if video_url else []
+                        }
+                        print(f"✅ Meta etiketlerinden medya URL'leri bulundu")
+                
+                # Direct media URL pattern check
+                print("🔍 Direkt medya URL'leri kontrol ediliyor...")
+                # ... existing code ...
+
+                # Carousel/Sidecar kontrolü için ek tarama
+                print("🔍 Carousel gönderisi kontrolü yapılıyor...")
+                carousel_patterns = [
+                    r'"edge_sidecar_to_children":\s*{"edges":\s*\[(.*?)\]\s*}',
+                    r'"carousel_media":\s*\[(.*?)\]',
+                    r'"carousel":\s*\[(.*?)\]'
+                ]
+                
+                carousel_images = []
+                carousel_videos = []
+                
+                for pattern in carousel_patterns:
+                    carousel_matches = re.findall(pattern, html_content, re.DOTALL)
+                    if carousel_matches:
+                        print(f"✅ Carousel yapısı tespit edildi")
+                        for carousel_data in carousel_matches:
+                            # Carousel içindeki görüntü URL'lerini bul
+                            carousel_imgs = re.findall(r'"display_url":"([^"]+)"', carousel_data)
+                            carousel_vids = re.findall(r'"video_url":"([^"]+)"', carousel_data)
+                            
+                            carousel_images.extend([url.replace('\\u0026', '&') for url in carousel_imgs])
+                            carousel_videos.extend([url.replace('\\u0026', '&') for url in carousel_vids])
+                            
+                            print(f"✅ Carousel'den {len(carousel_imgs)} resim, {len(carousel_vids)} video URL'si eklendi")
+                
+                media_urls_images = re.findall(r'https://scontent[^"\']+\.jpg[^"\']*', html_content)
+                media_urls_videos = re.findall(r'https://scontent[^"\']+\.mp4[^"\']*', html_content)
+                
+                all_image_urls = []
+                all_video_urls = []
+                
+                # React JSON'dan bulunan URL'leri ekle
+                all_image_urls.extend(react_images)
+                all_video_urls.extend(react_videos)
+                
+                # Bulunan diğer medya URL'lerini ekle
+                all_image_urls.extend(media_urls_images)
+                all_video_urls.extend(media_urls_videos)
+                
+                # Carousel resimlerini ve videolarını ekle
+                all_image_urls.extend(carousel_images)
+                all_video_urls.extend(carousel_videos)
+                
+                if media_urls_images or media_urls_videos or carousel_images or carousel_videos or react_images or react_videos:
+                    post_data = {
+                        "direct_images": media_urls_images + carousel_images + react_images,
+                        "direct_videos": media_urls_videos + carousel_videos + react_videos
+                    }
+                    print(f"✅ HTML içeriğinden {len(media_urls_images)} resim, {len(media_urls_videos)} video URL'si bulundu")
+                    print(f"✅ Carousel'den {len(carousel_images)} resim, {len(carousel_videos)} video URL'si bulundu")
+
+                if post_data:
+                    print(f"✅ Post verisi bulundu, indirme başlıyor...")
+                else:
+                    print(f"❌ Post verisi bulunamadı!")
+
+                # Hala bulunamadıysa, varsayılan olarak postu indirelim
+                if not graphql_username:
+                    graphql_username = f"unknown_user_{int(time.time())}"
+                    print(f"⚠️ Kullanıcı adı bulunamadı, geçici ad kullanılıyor: {graphql_username}")
+
+                # Kullanıcı dizinini oluştur
+                user_dir = self.content_types["posts"] / graphql_username
+                user_dir.mkdir(exist_ok=True)
+                
+                # Gönderi klasörünü oluştur ve kontrol et
+                post_dir = user_dir / post_code
+                if post_dir.exists() and list(post_dir.glob("*.*")):
+                    print(f"⚠️ Bu gönderi ({post_code}) daha önce indirilmiş. Tekrar indirilmiyor.")
+                    print(f"📁 Gönderi dizini: {post_dir}")
+                    return True
+                
+                # Gönderi klasörünü oluştur
+                post_dir.mkdir(exist_ok=True)
+                
+                # Öncelikle og:image meta tag'inden resim indirmeyi dene - bu neredeyse her zaman mevcuttur
+                download_successful = False
+                og_image_match = re.search(r'<meta property="og:image" content="([^"]+)"', html_content)
+                if og_image_match:
+                    og_image_url = og_image_match.group(1)
+                    try:
+                        print(f"🔍 Meta tag'inden resim indiriliyor: {og_image_url}")
+                        img_response = requests.get(og_image_url, headers=headers)
+                        if img_response.status_code == 200 and len(img_response.content) > 5000:
+                            img_path = post_dir / "og_image.jpg"
+                            with open(img_path, "wb") as f:
+                                f.write(img_response.content)
+                            print(f"✅ Meta resmi başarıyla indirildi")
+                            download_successful = True
+                    except Exception as e:
+                        print(f"❌ Meta resim indirme hatası: {str(e)}")
+                
+                # HTML'den tüm olası medya URL'lerini çıkar
+                all_image_patterns = [
+                    r'<img[^>]*\ssrc="([^"]+\.(jpg|jpeg|png)[^"]*)"',
+                    r'background-image:\s*url\([\'"]?([^\'"]*\.(jpg|jpeg|png))[\'"]?\)',
+                    r'"display_url":"([^"]+)"',
+                    r'"display_src":"([^"]+)"',
+                    r'"url":"(https:[^"]+\.(jpg|jpeg|png)[^"]*)"',
+                    r'content="([^"]+\.(jpg|jpeg|png)[^"]*)"',
+                    # 2024 formatları için yeni kalıplar
+                    r'"image_versions2":\s*{"candidates":\s*\[\s*{"url":\s*"([^"]+)"',
+                    r'"optimized_image_url":\s*"([^"]+)"',
+                    r'"static_image":\s*"([^"]+)"',
+                    r'"image":\s*{"uri":\s*"([^"]+)"',
+                ]
+                
+                all_video_patterns = [
+                    r'<video[^>]*\ssrc="([^"]+)"',
+                    r'<source[^>]*\ssrc="([^"]+\.(mp4|mov)[^"]*)"',
+                    r'"video_url":"([^"]+)"',
+                    r'"contentUrl":"([^"]+\.(mp4|mov)[^"]*)"',
+                    r'"url":"(https:[^"]+\.(mp4|mov)[^"]*)"',
+                    # 2024 formatları için yeni kalıplar
+                    r'"video_versions":\s*\[\s*{"type":\s*\d+,\s*"url":\s*"([^"]+)"',
+                    r'"playback_url":\s*"([^"]+)"',
+                    r'"video":\s*{"uri":\s*"([^"]+)"',
+                ]
+                
+                # Regex paternlerinden daha fazla URL çıkar
+                for pattern in all_image_patterns:
+                    matches = re.findall(pattern, html_content)
+                    if matches:
+                        for match in matches:
+                            if isinstance(match, tuple):
+                                all_image_urls.append(match[0])
+                            else:
+                                all_image_urls.append(match)
+                
+                # Tüm video URL'lerini topla
+                for pattern in all_video_patterns:
+                    matches = re.findall(pattern, html_content)
+                    if matches:
+                        for match in matches:
+                            if isinstance(match, tuple):
+                                all_video_urls.append(match[0])
+                            else:
+                                all_video_urls.append(match)
+                
+                # URL'leri temizle
+                all_image_urls = [url.replace('\\u0026', '&') for url in all_image_urls]
+                all_video_urls = [url.replace('\\u0026', '&') for url in all_video_urls]
+                
+                # Tekrarlananları kaldır
+                all_image_urls = list(set(all_image_urls))
+                all_video_urls = list(set(all_video_urls))
+                
+                # Geçersiz URL'leri filtrele
+                all_image_urls = [url for url in all_image_urls if url.startswith(('http://', 'https://')) and len(url) > 20]
+                all_video_urls = [url for url in all_video_urls if url.startswith(('http://', 'https://')) and len(url) > 20]
+                
+                # En büyük resimler için Instagram CDN URL'lerini seç
+                instagram_cdn_urls = [url for url in all_image_urls if 'cdninstagram.com' in url or 'fbcdn.net' in url]
+                if instagram_cdn_urls:
+                    all_image_urls = instagram_cdn_urls
+                
+                # Tüm bulunan URL'leri post_data'ya ekle
+                if all_image_urls or all_video_urls:
+                    if not post_data:
+                        post_data = {}
+                    post_data["direct_images"] = list(set(post_data.get("direct_images", []) + all_image_urls))
+                    post_data["direct_videos"] = list(set(post_data.get("direct_videos", []) + all_video_urls))
+                    print(f"✅ Regex paternlerinden {len(all_image_urls)} resim, {len(all_video_urls)} video URL'si bulundu")
+                
+                if download_successful:
+                    duration = time.time() - start_time
+                    print(self._("post_success", graphql_username, duration))
+                    print(self._("post_saved", post_dir))
+                    return True
+                
+                # İndirme işlemini gerçekleştir
+                download_successful = False
+                
+                if post_data:
+                    # Resimleri indir
+                    if "direct_images" in post_data and post_data["direct_images"]:
+                        for i, img_url in enumerate(post_data["direct_images"]):
+                            try:
+                                img_response = requests.get(img_url, headers=headers)
+                                if img_response.status_code == 200 and len(img_response.content) > 5000:  # Minimum boyut kontrolü
+                                    img_path = post_dir / f"image_{i+1}.jpg"
+                                    with open(img_path, "wb") as f:
+                                        f.write(img_response.content)
+                                    print(f"✅ Resim {i+1} indirildi")
+                                    download_successful = True
+                            except Exception as e:
+                                print(f"❌ Resim {i+1} indirilemedi: {str(e)}")
+                    
+                    # Videoları indir
+                    if "direct_videos" in post_data and post_data["direct_videos"]:
+                        for i, vid_url in enumerate(post_data["direct_videos"]):
+                            try:
+                                vid_response = requests.get(vid_url, headers=headers)
+                                if vid_response.status_code == 200 and len(vid_response.content) > 10000:  # Minimum boyut kontrolü
+                                    vid_path = post_dir / f"video_{i+1}.mp4"
+                                    with open(vid_path, "wb") as f:
+                                        f.write(vid_response.content)
+                                    print(f"✅ Video {i+1} indirildi")
+                                    download_successful = True
+                            except Exception as e:
+                                print(f"❌ Video {i+1} indirilemedi: {str(e)}")
+                
+                # İndirme başarılı mı kontrol et
+                if download_successful:
+                    duration = time.time() - start_time
+                    print(self._("post_success", graphql_username, duration))
+                    print(self._("post_saved", post_dir))
+                    return True
+                
+                # İndirme başarısız olduysa ve post_dir boşsa sil
+                if post_dir.exists() and not any(post_dir.glob("*.*")):
+                    try:
+                        shutil.rmtree(post_dir)
+                    except Exception:
+                        pass
+                
+                print(self._("post_fail"))
+                return False
+            
+            except Exception as e:
+                print(f"❌ Veri alımı hatası: {str(e)}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Post indirme hatası: {str(e)}")
+            traceback.print_exc()
+            return False
+        finally:
+            # Her durumda geçici klasörü temizle
+            try:
+                if 'temp_dir' in locals() and temp_dir.exists():
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
