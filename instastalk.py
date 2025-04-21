@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os
 import json
-import argparse
 import getpass
 import time
 import re
@@ -9,22 +8,14 @@ import requests
 import shutil
 from datetime import datetime
 from pathlib import Path
-import sys
+import gzip
+import brotli
+import traceback
+import tempfile
 import base64
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import uuid
-import tempfile
-import traceback
-import gzip
-try:
-    import brotli
-except ImportError:
-    print("Installing brotli library...")
-    import subprocess
-    subprocess.check_call(["pip", "install", "brotli"])
-    import brotli
 
 try:
     from instacapture import InstaStory, InstaPost
