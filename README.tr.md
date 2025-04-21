@@ -1,18 +1,18 @@
 # InstaCapture
 
-**InstaCapture, hikayeler, gönderiler, reels ve profil resimlerini indirmek için kullanılan bir komut satırı aracıdır.**
+**InstaCapture, yalnızca Instagram hikayelerini indirmek için kullanılan basit bir komut satırı aracıdır.**
 
 [README in English](README.md)
 
 ## Genel Bakış
 
-InstaCapture, Instagram içeriklerini arşivlemek veya çevrimdışı görüntülemek için indirme olanağı sağlar. Hikayeler, gönderiler ve profil resimlerini indirmek için kullanımı kolay bir komut satırı arayüzü sunar.
+InstaCapture, Instagram hikayelerini arşivlemek veya çevrimdışı görüntülemek için kullanılan basit bir komut satırı aracıdır. Hikayeler, gönderiler ve profil resimlerini indirmek için kullanımı kolay bir komut satırı arayüzü sunar.
 
 ## Özellikler
 
-- 📸 **Hikaye İndirme**: Takip ettiğiniz herhangi bir kullanıcının hikayelerini kaydedin
+- 📸 **Hikaye İndirme**: Takip ettiğiniz kullanıcıların hikayelerini indirin
 - 🖼️ **Gönderi İndirme**: Fotoğraf ve videoları indirin
-- 📹 **Reels Desteği**: Instagram reels videolarını indirin
+- �� **Reels Desteği**: Instagram reels videolarını indirin
 - 👤 **Profil Resimleri**: Tam çözünürlüklü profil resimlerini indirin
 - 🔄 **Toplu İndirme**: Birden fazla hikaye veya gönderiyi tek seferde indirin
 - 🔒 **Özel Hesap Desteği**: Takip ettiğiniz özel hesaplardan içerik erişimi
@@ -62,15 +62,8 @@ python3 instastalk.py
 
 ### Hikaye İndirme
 1. Uygulamayı çalıştırın: `python instastalk.py`
-2. Seçenek menüsünden **Hikaye İndir**'i seçin
-3. Hikayeleri indirmek istediğiniz kullanıcı adını girin
-4. Hikayeler, `instagram_content/stories/` klasörüne kaydedilecektir
-
-### Gönderi/ Reels İndirme
-1. Uygulamayı çalıştırın: `python instastalk.py`
-2. **Gönderi/Reel İndir** seçeneğini seçin
-3. Instagram gönderi URL'sini girin (örn. https://www.instagram.com/p/ABC123/)
-4. İçerik, `instagram_content/posts/` klasörüne kaydedilecektir
+2. Hikayeleri indirmek istediğiniz kullanıcı adını girin
+3. Hikayeler, `instagram_content/stories/` klasörüne kaydedilecektir
 
 ## Sorun Giderme
 

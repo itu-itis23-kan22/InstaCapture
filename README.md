@@ -10,7 +10,7 @@ InstaCapture allows you to download Instagram content for archiving or offline v
 
 ## ✨ Features
 
-- 📸 **Story Downloads**: Save stories from any user you follow
+- 📸 **Story Downloads**: Save Instagram stories from any user (public or private if you have valid cookies)
 - 🖼️ **Post Downloads**: Save photos and videos from posts
 - 📹 **Reels Support**: Download Instagram reels
 - 👤 **Profile Pictures**: Download profile pictures in full resolution
@@ -62,9 +62,8 @@ python3 instastalk.py
 
 ### Downloading Stories
 1. Run the application: `python instastalk.py`
-2. Select option 1 to download stories
-3. Enter the username whose stories you want to download
-4. The stories will be saved in the `instagram_content/stories/` directory
+2. Enter the username whose stories you want to download
+3. The stories will be saved in the `instagram_content/stories/` directory
 
 ### Downloading Posts
 1. Run the application: `python instastalk.py`
@@ -79,8 +78,4 @@ python3 instastalk.py
 4. The content will be organized in the respective directories
 
 ### Downloaded Content Location
-All downloaded content is saved in the `instagram_content/` directory, organized by content type:
-- Stories: `instagram_content/stories/`
-- Posts: `instagram_content/posts/`
-- Profile Pictures: `instagram_content/profile_pics/`
-- Highlights: `instagram_content/highlights/`
+All downloaded content is saved in the `instagram_content/stories/` directory under the specified username.
