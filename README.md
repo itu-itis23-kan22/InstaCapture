@@ -1,7 +1,5 @@
 # InstaCapture
 
-![InstaCapture Logo](https://raw.githubusercontent.com/itu-itis23-kan22/InstaCapture/main/assets/logo.png)
-
 **InstaCapture is a command-line tool for downloading Instagram content including stories, posts, reels, and profile pictures.**
 
 [README in Turkish](README.tr.md)
@@ -21,8 +19,6 @@ InstaCapture allows you to download Instagram content for archiving or offline v
 - 🌍 **Multilingual**: Available in English and Turkish
 - 🖥️ **Command-Line Interface**: Simple to use from the terminal
 
-![CLI Screenshot](https://raw.githubusercontent.com/itu-itis23-kan22/InstaCapture/main/assets/cli_screenshot.png)
-
 ## 🔧 Requirements
 
 - Python 3.7 or higher
@@ -31,6 +27,8 @@ InstaCapture allows you to download Instagram content for archiving or offline v
   - pytz
   - requests
   - lxml
+  - cryptography
+  - brotli
 
 ## 📦 Installation & Setup
 
@@ -86,46 +84,3 @@ All downloaded content is saved in the `instagram_content/` directory, organized
 - Posts: `instagram_content/posts/`
 - Profile Pictures: `instagram_content/profile_pics/`
 - Highlights: `instagram_content/highlights/`
-
-## 🔍 Troubleshooting
-
-1. **Cookies Required**
-   - To access content from private accounts or accounts you follow, you need to provide Instagram cookies
-   - In the application, select option 4 to set cookies
-   - Follow the instructions to copy your Instagram cookies
-
-2. **Content Not Found**
-   - Ensure you have the correct username or URL
-   - Check that you have access to view the content
-   - Verify that your cookies are valid and not expired
-
-## 🔐 Security Note
-
-InstaCapture stores Instagram cookies locally to allow access to content from private accounts. These cookies are stored in the `.instastalk/cookies.json` file. Never share your cookies with others as they can be used to access your Instagram account.
-
-## 🤝 Contributing
-
-Contributions are welcome! Whether it's bug reports, feature requests, or code contributions, please feel free to contribute.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-For detailed information on contributing, please see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## ❓ FAQ
-
-**Is this tool legal?**
-InstaCapture is designed for personal use only to download content you already have access to view. Use it responsibly and respect Instagram's Terms of Service.
-
-**Do I need an Instagram account?**
-Yes, to access most content, especially from private accounts, you need to log in with valid Instagram cookies.
-
-**Why do my cookies expire?**
-Instagram cookies typically expire after a few days. If you encounter issues, simply update your cookies using option 4 in the application.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

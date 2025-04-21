@@ -2,3 +2,5 @@ instacapture
 pytz
 requests
 lxml
+cryptography
+brotli
