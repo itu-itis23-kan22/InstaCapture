@@ -933,6 +933,41 @@ class InstaStalker:
             
             print(f"📥 Gönderi indiriliyor: {post_code}")
             
+            # JSON API yoluyla tam çözünürlük ve carousel öğelerini indir
+            try:
+                json_url = combined_url + "?__a=1&__d=dis"
+                jresp = requests.get(json_url, headers=headers, cookies=self.cookies)
+                if jresp.status_code == 200:
+                    jd = jresp.json()
+                    media = jd.get('graphql', {}).get('shortcode_media', {})
+                    owner = media.get('owner', {}).get('username')
+                    if owner:
+                        graphql_username = owner
+                    user_dir = self.content_types['posts'] / graphql_username
+                    user_dir.mkdir(exist_ok=True)
+                    post_dir = user_dir / post_code
+                    post_dir.mkdir(exist_ok=True)
+                    edges = media.get('edge_sidecar_to_children', {}).get('edges') or [{'node': media}]
+                    for idx, edge in enumerate(edges, 1):
+                        node = edge.get('node', {})
+                        if node.get('is_video'):
+                            url = node.get('video_url')
+                            ext = '.mp4'
+                        else:
+                            url = node.get('display_url')
+                            ext = '.jpg'
+                        full_url = self._optimize_instagram_url(url)
+                        resp2 = requests.get(full_url, headers=headers)
+                        if resp2.status_code == 200:
+                            with open(post_dir / f"media_{idx}{ext}", 'wb') as f2:
+                                f2.write(resp2.content)
+                    duration = time.time() - start_time
+                    print(self._("post_success", graphql_username, duration))
+                    print(self._("post_saved", post_dir))
+                    return True
+            except Exception as e:
+                print(f"⚠️ JSON API extraction failed: {e}")
+            # HTML scraping fallback
             try:
                 # Gönderi sayfasını çek
                 response = requests.get(combined_url, headers=headers, cookies=self.cookies, allow_redirects=True)
