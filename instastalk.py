@@ -1010,6 +1010,42 @@ class InstaStalker:
                     with open("instapost.html", "w", encoding="utf-8") as f:
                         f.write(html_content)
                     print(f"💾 HTML içeriği 'instapost.html' dosyasına kaydedildi")
+                    # Try JSON-based full extraction to handle carousel and uncropped images
+                    try:
+                        shared_data_match = re.search(r'window\._sharedData\s*=\s*({.*?});</script>', html_content, re.DOTALL)
+                        if shared_data_match:
+                            shared_json = json.loads(shared_data_match.group(1))
+                            media = shared_json['entry_data']['PostPage'][0]['graphql']['shortcode_media']
+                            # Determine username
+                            graphql_username = media.get('owner', {}).get('username') or graphql_username
+                            # Prepare directories
+                            user_dir = self.content_types['posts'] / graphql_username
+                            user_dir.mkdir(exist_ok=True)
+                            post_dir = user_dir / post_code
+                            post_dir.mkdir(exist_ok=True)
+                            # Get carousel edges or single
+                            edges = media.get('edge_sidecar_to_children', {}).get('edges', [{'node': media}])
+                            # Download each media item
+                            for idx, edge in enumerate(edges, 1):
+                                node = edge.get('node', {})
+                                if node.get('is_video'):
+                                    media_url = node.get('video_url')
+                                    ext = '.mp4'
+                                else:
+                                    media_url = node.get('display_url')
+                                    ext = '.jpg'
+                                media_url = self._optimize_instagram_url(media_url)
+                                resp = requests.get(media_url, headers=headers)
+                                if resp.status_code == 200:
+                                    fp = post_dir / f'media_{idx}{ext}'
+                                    with open(fp, 'wb') as fmf:
+                                        fmf.write(resp.content)
+                            duration = time.time() - start_time
+                            print(self._("post_success", graphql_username, duration))
+                            print(self._("post_saved", post_dir))
+                            return True
+                    except Exception:
+                        pass
                 else:
                     # Reel URL'sini dene
                     reel_url = f"https://www.instagram.com/reel/{post_code}/"
