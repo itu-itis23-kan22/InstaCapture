@@ -106,10 +106,10 @@ TRANSLATIONS = {
         "menu_clean": "7. Tüm İndirilen Dosyaları Temizle",
         "menu_lang": "8. Dil Değiştir (Change Language)",
         "menu_exit": "9. Çıkış",
-        "menu_choice": "\nSeçiminiz (1-9): ",
-        "username_prompt": "Hikayeleri indirilecek kullanıcı adı: ",
+        "menu_choice": "\nSeçiminiz (1-10): ",
+        "story_username_prompt": "Hikayeleri indirilecek kullanıcı adı: ",
         "post_url_prompt": "Gönderi veya reel URL'si: ",
-        "username_prompt": "Profil resmi indirilecek kullanıcı adı: ",
+        "profile_username_prompt": "Profil resmi indirilecek kullanıcı adı: ",
         "invalid_choice": "Geçersiz seçim!",
         "exit_message": "Çıkılıyor...",
         "interrupt_message": "\n\nİşlem kullanıcı tarafından durduruldu. Çıkılıyor...",
@@ -219,10 +219,10 @@ TRANSLATIONS = {
         "menu_clean": "7. Clean All Downloaded Files",
         "menu_lang": "8. Change Language (Dil Değiştir)",
         "menu_exit": "9. Exit",
-        "menu_choice": "\nYour choice (1-9): ",
-        "username_prompt": "Username for stories to download: ",
+        "menu_choice": "\nYour choice (1-10): ",
+        "story_username_prompt": "Username for stories to download: ",
         "post_url_prompt": "Post or reel URL: ",
-        "username_prompt": "Username for profile picture to download: ",
+        "profile_username_prompt": "Username for profile picture to download: ",
         "invalid_choice": "Invalid choice!",
         "exit_message": "Exiting...",
         "interrupt_message": "\n\nOperation interrupted by user. Exiting...",
@@ -1723,11 +1723,12 @@ class InstaStalker:
                 print(self._("menu_clean"))
                 print(self._("menu_lang"))
                 print(self._("menu_exit"))
+                print(self._("menu_10"))  # Download Highlight Stories
                 
                 choice = input(self._("menu_choice")).strip()
                 
                 if choice == "1":
-                    username = input(self._("username_prompt")).strip()
+                    username = input(self._("story_username_prompt")).strip()
                     if username:
                         self.download_story(username)
                 
@@ -1737,7 +1738,7 @@ class InstaStalker:
                         self.download_post(post_url)
                 
                 elif choice == "3":
-                    username = input(self._("username_prompt")).strip()
+                    username = input(self._("profile_username_prompt")).strip()
                     if username:
                         self.download_profile_pic(username)
                 
@@ -1769,6 +1770,11 @@ class InstaStalker:
                 elif choice == "9":
                     print(self._("exit_message"))
                     break
+                
+                elif choice == "10":  # Download highlight stories
+                    username = input(self._("highlight_username_prompt")).strip()
+                    if username:
+                        self.download_highlights(username)
                 
                 else:
                     print(self._("invalid_choice"))
