@@ -954,8 +954,15 @@ class InstaStalker:
                             url = node.get('video_url')
                             ext = '.mp4'
                         else:
-                            url = node.get('display_url')
-                            ext = '.jpg'
+                            # Choose highest resolution image if available
+                            resources = node.get('display_resources') or node.get('image_versions2', {}).get('candidates', [])
+                            if resources:
+                                # last item should be highest resolution
+                                url = resources[-1].get('src')
+                            else:
+                                url = node.get('display_url')
+                            # derive extension from URL
+                            ext = os.path.splitext(url)[1].split('?')[0] if '.' in url else '.jpg'
                         full_url = self._optimize_instagram_url(url)
                         resp2 = requests.get(full_url, headers=headers)
                         if resp2.status_code == 200:
