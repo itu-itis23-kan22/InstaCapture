@@ -6,16 +6,11 @@
 
 ## Genel Bakış
 
-InstaCapture, Instagram hikayelerini arşivlemek veya çevrimdışı görüntülemek için kullanılan basit bir komut satırı aracıdır. Hikayeler, gönderiler ve profil resimlerini indirmek için kullanımı kolay bir komut satırı arayüzü sunar.
+InstaCapture, Instagram hikayelerini arşivlemek veya çevrimdışı görüntülemek için kullanılan basit bir komut satırı aracıdır ve sadece hikaye indirmeye odaklanır (geçerli Instagram çerezleri gerektirir).
 
 ## Özellikler
 
 - 📸 **Hikaye İndirme**: Takip ettiğiniz kullanıcıların hikayelerini indirin
-- 🖼️ **Gönderi İndirme**: Fotoğraf ve videoları indirin
-- �� **Reels Desteği**: Instagram reels videolarını indirin
-- 👤 **Profil Resimleri**: Tam çözünürlüklü profil resimlerini indirin
-- 🔄 **Toplu İndirme**: Birden fazla hikaye veya gönderiyi tek seferde indirin
-- 🔒 **Özel Hesap Desteği**: Takip ettiğiniz özel hesaplardan içerik erişimi
 - 🌍 **Çok Dilli**: Türkçe ve İngilizce seçenekleri
 - 🖥️ **Komut Satırı Arayüzü**: Terminalden kolay kullanım
 
@@ -60,16 +55,25 @@ python3 instastalk.py
 
 ## Kullanım
 
-### Hikaye İndirme
-1. Uygulamayı çalıştırın: `python instastalk.py`
-2. Hikayeleri indirmek istediğiniz kullanıcı adını girin
-3. Hikayeler, `instagram_content/stories/` klasörüne kaydedilecektir
+1. Uygulamayı çalıştırın:
+   ```bash
+   python instastalk.py
+   ```
+2. Seçeneklerden birini seçin:
+   - 1. **Story Stalk**: Hikayelerini indirmek için kullanıcı adı girin.
+   - 2. **Çerezleri Değiştir**: Yeni Instagram çerezlerini yapıştırın.
+   - 3. **Dil Değiştir**: Türkçe ve İngilizce arasında geçiş yapın.
+   - 0. **Çıkış**: Uygulamadan çıkın.
+
+### İndirme Konumu
+
+Tüm indirilen hikayeler `instagram_content/stories/<kullanıcı adı>/` klasörüne kaydedilir.
 
 ## Sorun Giderme
 
 - **Çerez Gereklidir**: Özel hesap içeriklerine erişmek için geçerli Instagram çerezlerinizi ayarlayın
-- **İçerik Bulunamadı**: Doğru kullanıcı adı veya URL kullandığınızdan emin olun
-- **Çerezler Süresi Doldu**: Option 5 ile çerezleri tekrar ayarlayın
+- **İçerik Bulunamadı**: Doğru kullanıcı adı kullandığınızdan ve geçerli çerezlere sahip olduğunuzdan emin olun
+- **Çerezler Süresi Doldu**: Seçenek 2 (Çerezleri Değiştir) ile çerezleri tekrar ayarlayın
 
 ## Lisans
 

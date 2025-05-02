@@ -662,15 +662,28 @@ class InstaStalker:
             return False
     
     def show_menu(self):
-        """Only allow story download."""
-        print(self._("app_title"))
-        try:
-            username = input(self._("story_username_prompt")).strip()
-            if username:
-                self.download_story(username)
-        except KeyboardInterrupt:
-            pass
-        print(self._("exit_message"))
+        """Show interactive menu with multiple options."""
+        while True:
+            print(self._("app_title"))
+            print("1. Story Stalk")
+            print("2. Change cookies")
+            print("3. Change Language (Dil Değiştir)")
+            print("0. Exit")
+            choice = input("Select an option: ").strip()
+            if choice == "1":
+                username = input(self._("story_username_prompt")).strip()
+                if username:
+                    self.download_story(username)
+            elif choice == "2":
+                self.get_interactive_cookies()
+            elif choice == "3":
+                self.change_language()
+            elif choice == "0":
+                print(self._("exit_message"))
+                break
+            else:
+                print(self._("invalid_choice"))
+            print()
 
 
 # Remove main guard and instantiate only story CLI
